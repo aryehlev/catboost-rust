@@ -1,0 +1,27 @@
+[package]
+name = "catboost"
+version = "0.1.0"
+authors = ["Sergey Kiselev <kiselev.sg@gmail.com>"]
+edition = "2018"
+description = "Rust bindings for CatBoost, a gradient boosting library for machine learning"
+license = "Apache-2.0"
+repository = "https://github.com/your-username/catboost-rs"
+keywords = ["machine-learning", "gradient-boosting", "catboost", "ml"]
+categories = ["science", "machine-learning"]
+readme = "README.md"
+
+[dependencies]
+catboost-sys = { path = "catboost-sys", version = "0.1"}
+# catboost-sys = "0.1"
+approx = "0.5.1"
+
+[features]
+gpu = ["catboost-sys/gpu"]
+
+[[example]]
+name = "basic_usage"
+path = "examples/basic_usage.rs"
+
+[[example]]
+name = "advanced_usage"
+path = "examples/advanced_usage.rs"
