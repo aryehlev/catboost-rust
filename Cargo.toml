@@ -10,9 +10,6 @@ categories = ["science"]
 readme = "README.md"
 rust-version = "1.70"
 
-[dependencies]
-approx = "0.5.1"
-
 [build-dependencies]
 bindgen = "~0.59"
 ureq = "2.0"
