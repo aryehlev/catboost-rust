@@ -4,7 +4,6 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::fs;
 use std::io;
-use std::process::Command;
 
 fn get_catboost_version() -> String {
     env::var("CATBOOST_VERSION").unwrap_or_else(|_| "1.2.8".to_string())
@@ -15,7 +14,7 @@ fn get_platform_info() -> (String, String) {
     
     // Determine OS
     let os = if target.contains("apple-darwin") {
-        "macos"
+        "darwin"
     } else if target.contains("linux") {
         "linux"
     } else if target.contains("windows") {
@@ -38,11 +37,39 @@ fn get_platform_info() -> (String, String) {
     (os.to_string(), arch.to_string())
 }
 
-fn download_and_extract_binary(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn download_model_interface_headers(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let version = get_catboost_version();
+    
+    // Create the model_interface directory
+    let model_interface_dir = out_dir.join("libs/model_interface");
+    fs::create_dir_all(&model_interface_dir)?;
+    
+    // Download the c_api.h file
+    let c_api_url = format!(
+        "https://raw.githubusercontent.com/catboost/catboost/v{}/catboost/libs/model_interface/c_api.h",
+        version
+    );
+    
+    println!("cargo:warning=Downloading c_api.h from: {}", c_api_url);
+    
+    let response = ureq::get(&c_api_url).call()?;
+    let status = response.status();
+    if status < 200 || status >= 300 {
+        return Err(format!("Failed to download c_api.h: HTTP {}", status).into());
+    }
+    
+    let c_api_path = model_interface_dir.join("c_api.h");
+    let mut file = fs::File::create(&c_api_path)?;
+    io::copy(&mut response.into_reader(), &mut file)?;
+    
+    Ok(())
+}
+
+fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let (os, arch) = get_platform_info();
     let version = get_catboost_version();
     
-    // Construct download URL based on platform
+    // Construct download URL for the compiled library
     let download_url = match (os.as_str(), arch.as_str()) {
         ("linux", "x86_64") => format!(
             "https://github.com/catboost/catboost/releases/download/v{}/catboost-linux-x86_64-{}",
@@ -52,11 +79,11 @@ fn download_and_extract_binary(out_dir: &Path) -> Result<(), Box<dyn std::error:
             "https://github.com/catboost/catboost/releases/download/v{}/catboost-linux-aarch64-{}",
             version, version
         ),
-        ("macos", "x86_64") => format!(
+        ("darwin", "x86_64") => format!(
             "https://github.com/catboost/catboost/releases/download/v{}/catboost-darwin-universal2-{}",
             version, version
         ),
-        ("macos", "aarch64") => format!(
+        ("darwin", "aarch64") => format!(
             "https://github.com/catboost/catboost/releases/download/v{}/catboost-darwin-universal2-{}",
             version, version
         ),
@@ -80,26 +107,26 @@ fn download_and_extract_binary(out_dir: &Path) -> Result<(), Box<dyn std::error:
         return Err(format!("Failed to download binary: HTTP {}", status).into());
     }
     
-    let archive_path = download_dir.join("catboost-archive");
+    let archive_path = download_dir.join("catboost-binary");
     let mut file = fs::File::create(&archive_path)?;
     io::copy(&mut response.into_reader(), &mut file)?;
     
-    // Extract the archive
-    let extract_dir = out_dir.join("catboost");
-    fs::create_dir_all(&extract_dir)?;
+    // Extract or copy the binary to the appropriate location
+    let lib_dir = out_dir.join("libs");
+    fs::create_dir_all(&lib_dir)?;
     
     if download_url.ends_with(".tar.gz") {
         let file = fs::File::open(&archive_path)?;
         let gz = flate2::read::GzDecoder::new(file);
         let mut archive = tar::Archive::new(gz);
-        archive.unpack(&extract_dir)?;
+        archive.unpack(&lib_dir)?;
     } else if download_url.ends_with(".zip") {
         let file = fs::File::open(&archive_path)?;
         let mut archive = zip::ZipArchive::new(file)?;
-        archive.extract(&extract_dir)?;
+        archive.extract(&lib_dir)?;
     } else {
-        // For uncompressed files, just copy to the extract directory
-        let final_path = extract_dir.join("catboost");
+        // For uncompressed files, just copy to the lib directory
+        let final_path = lib_dir.join("catboost");
         fs::copy(&archive_path, &final_path)?;
         // Make executable on Unix systems
         #[cfg(unix)]
@@ -120,43 +147,18 @@ fn download_and_extract_binary(out_dir: &Path) -> Result<(), Box<dyn std::error:
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let cb_model_interface_root = Path::new("../../libs/model_interface/")
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from("."));
+    let cb_model_interface_root = out_dir.join("libs/model_interface");
 
-    // Download and extract the binary
-    if let Err(e) = download_and_extract_binary(&out_dir) {
-        eprintln!("Failed to download CatBoost binary: {}", e);
-        eprintln!("Falling back to source build...");
-        
-        // Fallback to original source build
-        let debug = env::var("DEBUG").unwrap();
-        let mut build_native_args = vec![
-            "../../../build/build_native.py",
-            "--targets",
-            "catboostmodel",
-            "--build-root-dir",
-            out_dir.to_str().unwrap(),
-        ];
-        if debug == "true" {
-            build_native_args.push("--build-type=Debug");
-        } else {
-            build_native_args.push("--build-type=Release");
-        }
+    // Download the model interface headers
+    if let Err(e) = download_model_interface_headers(&out_dir) {
+        eprintln!("Failed to download model interface headers: {}", e);
+        panic!("Cannot proceed without headers");
+    }
 
-        #[cfg(feature = "gpu")]
-        build_native_args.push("--have-cuda");
-
-        let build_cmd_status = Command::new("python")
-            .args(&build_native_args)
-            .status()
-            .unwrap_or_else(|e| {
-                panic!("Failed to run build_native.py : {}", e);
-            });
-
-        if !build_cmd_status.success() {
-            panic!("Building with build_native.py failed");
-        }
+    // Download the compiled library
+    if let Err(e) = download_compiled_library(&out_dir) {
+        eprintln!("Failed to download compiled library: {}", e);
+        panic!("Cannot proceed without compiled library");
     }
 
     let bindings = bindgen::Builder::default()
@@ -171,18 +173,12 @@ fn main() {
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Couldn't write bindings.");
 
-    // Try to find the library in the downloaded/extracted location first
-    let lib_search_path = out_dir.join("catboost/libs/model_interface");
+    // Set up library search path
+    let lib_search_path = out_dir.join("libs");
     if lib_search_path.exists() {
         println!(
             "cargo:rustc-link-search={}",
             lib_search_path.display()
-        );
-    } else {
-        // Fallback to original path
-        println!(
-            "cargo:rustc-link-search={}",
-            out_dir.join("catboost/libs/model_interface").display()
         );
     }
 
