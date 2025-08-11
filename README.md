@@ -17,20 +17,20 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-catboost = "0.1.0"
+catboost-rust = "0.2.0"
 ```
 
 For GPU support:
 
 ```toml
 [dependencies]
-catboost = { version = "0.1.0", features = ["gpu"] }
+catboost-rust = { version = "0.2.0", features = ["gpu"] }
 ```
 
 ## Quick Start
 
 ```rust
-use catboost::{Model, ObjectsOrderFeatures};
+use catboost_rust::{Model, ObjectsOrderFeatures};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load a trained CatBoost model
@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Basic Usage
 
 ```rust
-use catboost::{Model, ObjectsOrderFeatures};
+use catboost_rust::{Model, ObjectsOrderFeatures};
 
 // Load model from file
 let model = Model::load("model.cbm")?;
@@ -70,7 +70,7 @@ let predictions = model.predict(features)?;
 ### Categorical Features
 
 ```rust
-use catboost::{Model, ObjectsOrderFeatures};
+use catboost_rust::{Model, ObjectsOrderFeatures};
 
 let model = Model::load("model.cbm")?;
 
@@ -85,7 +85,7 @@ let predictions = model.predict(features)?;
 ### Text Features
 
 ```rust
-use catboost::{Model, ObjectsOrderFeatures};
+use catboost_rust::{Model, ObjectsOrderFeatures};
 use std::ffi::CString;
 
 let model = Model::load("model.cbm")?;
@@ -105,7 +105,7 @@ let predictions = model.predict(features)?;
 ### Embedding Features
 
 ```rust
-use catboost::{Model, ObjectsOrderFeatures};
+use catboost_rust::{Model, ObjectsOrderFeatures};
 
 let model = Model::load("model.cbm")?;
 
@@ -169,7 +169,7 @@ println!("Dimensions: {}", model.get_dimensions_count());
 The crate provides comprehensive error handling:
 
 ```rust
-use catboost::{Model, CatBoostError, CatBoostResult};
+use catboost_rust::{Model, CatBoostError, CatBoostResult};
 
 fn load_and_predict() -> CatBoostResult<Vec<f64>> {
     let model = Model::load("model.cbm")?;
