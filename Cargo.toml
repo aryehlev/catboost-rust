@@ -1,6 +1,6 @@
 [package]
 name = "catboost"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2018"
 description = "Rust bindings for CatBoost, a gradient boosting library for machine learning. Downloads CatBoost binaries at runtime for cross-platform compatibility."
 license = "Apache-2.0"
