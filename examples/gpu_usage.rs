@@ -1,4 +1,4 @@
-use catboost::{Model, ObjectsOrderFeatures};
+use catboost_rust::{Model, ObjectsOrderFeatures};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("CatBoost Rust Example - GPU Usage");

@@ -1,4 +1,4 @@
-use catboost::{Model, CatBoostError};
+use catboost_rust::{Model, CatBoostError};
 use std::fs;
 
 fn main() -> Result<(), CatBoostError> {
