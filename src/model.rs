@@ -4,18 +4,19 @@ use crate::features::{
     EmptyTextFeatures,
     EmptyEmbeddingFeatures
 };
+use crate::sys;
 use std::ffi::{CStr,CString};
 use std::path::Path;
 
 pub struct Model {
-    handle: *mut catboost_sys::ModelCalcerHandle,
+    handle: *mut sys::ModelCalcerHandle,
 }
 
 unsafe impl Send for Model {}
 
 impl Model {
     fn new() -> Self {
-        let model_handle = unsafe { catboost_sys::ModelCalcerCreate() };
+        let model_handle = unsafe { sys::ModelCalcerCreate() };
         Model {
             handle: model_handle,
         }
@@ -26,7 +27,7 @@ impl Model {
         let model = Model::new();
         let path_c_str = CString::new(path.as_ref().to_str().unwrap()).unwrap();
         CatBoostError::check_return_value(unsafe {
-            catboost_sys::LoadFullModelFromFile(model.handle, path_c_str.as_ptr())
+            sys::LoadFullModelFromFile(model.handle, path_c_str.as_ptr())
         })?;
         Ok(model)
     }
@@ -35,7 +36,7 @@ impl Model {
     pub fn load_buffer<P: AsRef<Vec<u8>>>(buffer: P) -> CatBoostResult<Self> {
         let model = Model::new();
         CatBoostError::check_return_value(unsafe {
-            catboost_sys::LoadFullModelFromBuffer(
+            sys::LoadFullModelFromBuffer(
                 model.handle,
                 buffer.as_ref().as_ptr() as *const std::os::raw::c_void,
                 buffer.as_ref().len(),
@@ -118,7 +119,7 @@ impl Model {
                     .as_ref()
                     .iter()
                     .map(|cat_feature| unsafe {
-                        catboost_sys::GetStringCatFeatureHash(
+                        sys::GetStringCatFeatureHash(
                             cat_feature.as_ref().as_ptr() as *const std::os::raw::c_char,
                             cat_feature.as_ref().len(),
                         )
@@ -180,7 +181,7 @@ impl Model {
 
         let mut prediction = vec![0.0; object_count.unwrap() * self.get_dimensions_count()];
         CatBoostError::check_return_value(unsafe {
-            catboost_sys::CalcModelPredictionWithHashedCatFeaturesAndTextAndEmbeddingFeatures(
+            sys::CalcModelPredictionWithHashedCatFeaturesAndTextAndEmbeddingFeatures(
                 self.handle,
                 object_count.unwrap(),
                 float_features_ptr.as_mut_ptr(),
@@ -224,42 +225,42 @@ impl Model {
 
     /// Get expected float feature count for model
     pub fn get_float_features_count(&self) -> usize {
-        unsafe { catboost_sys::GetFloatFeaturesCount(self.handle) }
+        unsafe { sys::GetFloatFeaturesCount(self.handle) }
     }
 
     /// Get expected categorical feature count for model
     pub fn get_cat_features_count(&self) -> usize {
-        unsafe { catboost_sys::GetCatFeaturesCount(self.handle) }
+        unsafe { sys::GetCatFeaturesCount(self.handle) }
     }
 
     /// Get expected text feature count for model
     pub fn get_text_features_count(&self) -> usize {
-        unsafe { catboost_sys::GetTextFeaturesCount(self.handle) }
+        unsafe { sys::GetTextFeaturesCount(self.handle) }
     }
 
     /// Get expected embedding feature count for model
     pub fn get_embedding_features_count(&self) -> usize {
-        unsafe { catboost_sys::GetEmbeddingFeaturesCount(self.handle) }
+        unsafe { sys::GetEmbeddingFeaturesCount(self.handle) }
     }
 
     /// Get number of trees in model
     pub fn get_tree_count(&self) -> usize {
-        unsafe { catboost_sys::GetTreeCount(self.handle) }
+        unsafe { sys::GetTreeCount(self.handle) }
     }
 
     /// Get number of dimensions in model
     pub fn get_dimensions_count(&self) -> usize {
-        unsafe { catboost_sys::GetDimensionsCount(self.handle) }
+        unsafe { sys::GetDimensionsCount(self.handle) }
     }
 
     pub fn enable_gpu_evaluation(&self) -> CatBoostResult<()> {
-        CatBoostError::check_return_value( unsafe { catboost_sys::EnableGPUEvaluation(self.handle, 0) } )
+        CatBoostError::check_return_value( unsafe { sys::EnableGPUEvaluation(self.handle, 0) } )
     }
 }
 
 impl Drop for Model {
     fn drop(&mut self) {
-        unsafe { catboost_sys::ModelCalcerDelete(self.handle) };
+        unsafe { sys::ModelCalcerDelete(self.handle) };
     }
 }
 

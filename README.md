@@ -1,186 +1,221 @@
-# catboost-rs
+# CatBoost Rust Bindings
 
-Rust bindings for CatBoost, a gradient boosting library for machine learning.
+Rust bindings for [CatBoost](https://catboost.ai/), a gradient boosting library for machine learning. This crate provides a safe and ergonomic Rust interface to CatBoost's C API.
 
 ## Features
 
-- **Binary Download**: Downloads pre-compiled CatBoost binaries instead of building from source
-- **Multi-platform Support**: Works on Linux, macOS, and Windows
-- **Fallback to Source Build**: Automatically falls back to source compilation if binary download fails
-- **GPU Support**: Optional GPU support via feature flag
-- **Comprehensive API**: Full access to CatBoost's model interface
-- **Type Safety**: Rust's type system ensures safe usage
+- **Cross-platform**: Works on Linux, macOS, and Windows
+- **Self-contained**: Downloads CatBoost binaries at runtime - no system dependencies required
+- **Version control**: Specify different CatBoost versions via environment variable
+- **Safe Rust API**: Memory-safe wrapper around CatBoost's C API
+- **Multiple feature types**: Support for numeric, categorical, text, and embedding features
+- **GPU support**: Optional GPU acceleration (requires `gpu` feature)
 
-## Quick Start
+## Installation
 
-### Prerequisites
-
-- Rust (1.70 or later)
-- Python (optional, for creating sample models)
-
-### Installation
-
-Add to your `Cargo.toml`:
+Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-catboost = { git = "https://github.com/your-username/catboost-rs" }
-
-# For GPU support:
-# catboost = { git = "https://github.com/your-username/catboost-rs", features = ["gpu"] }
+catboost = "0.1.0"
 ```
 
-### Basic Usage
+For GPU support:
+
+```toml
+[dependencies]
+catboost = { version = "0.1.0", features = ["gpu"] }
+```
+
+## Quick Start
 
 ```rust
-use catboost::{Model, CatBoostError};
+use catboost::{Model, ObjectsOrderFeatures};
 
-fn main() -> Result<(), CatBoostError> {
-    // Load a model
-    let model = Model::load("path/to/model.bin")?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load a trained CatBoost model
+    let model = Model::load("path/to/model.cbm")?;
     
-    // Make predictions
-    let features = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
-    let predictions = model.calc_model_prediction(features, vec![Vec::<String>::new()])?;
+    // Make predictions with numeric features
+    let features = ObjectsOrderFeatures::new()
+        .with_float_features(&[
+            &[1.0, 2.0, 3.0, 4.0, 5.0],
+            &[2.0, 3.0, 4.0, 5.0, 6.0],
+        ]);
     
-    println!("Prediction: {}", predictions[0]);
+    let predictions = model.predict(features)?;
+    println!("Predictions: {:?}", predictions);
+    
     Ok(())
 }
 ```
 
-## Examples
+## Usage Examples
 
-This repository includes comprehensive examples:
+### Basic Usage
 
-```bash
-# Create sample models
-python examples/create_sample_model.py
+```rust
+use catboost::{Model, ObjectsOrderFeatures};
 
-# Run examples
-cargo run --example basic_usage
-cargo run --example advanced_usage
+// Load model from file
+let model = Model::load("model.cbm")?;
+
+// Simple numeric features prediction
+let features = ObjectsOrderFeatures::new()
+    .with_float_features(&[&[1.0, 2.0, 3.0, 4.0, 5.0]]);
+
+let predictions = model.predict(features)?;
 ```
 
-See the [examples/](examples/) directory for detailed examples and documentation.
+### Categorical Features
+
+```rust
+use catboost::{Model, ObjectsOrderFeatures};
+
+let model = Model::load("model.cbm")?;
+
+// Mixed numeric and categorical features
+let features = ObjectsOrderFeatures::new()
+    .with_float_features(&[&[1.0, 2.0, 3.0]])
+    .with_cat_features(&[&["A", "B", "C"]]);
+
+let predictions = model.predict(features)?;
+```
+
+### Text Features
+
+```rust
+use catboost::{Model, ObjectsOrderFeatures};
+use std::ffi::CString;
+
+let model = Model::load("model.cbm")?;
+
+let text_features = vec![
+    CString::new("This is a sample text").unwrap(),
+    CString::new("Another text sample").unwrap(),
+];
+
+let features = ObjectsOrderFeatures::new()
+    .with_float_features(&[&[1.0, 2.0]])
+    .with_text_features(&[&text_features]);
+
+let predictions = model.predict(features)?;
+```
+
+### Embedding Features
+
+```rust
+use catboost::{Model, ObjectsOrderFeatures};
+
+let model = Model::load("model.cbm")?;
+
+let embeddings = vec![
+    vec![0.1, 0.2, 0.3, 0.4], // First embedding
+    vec![0.5, 0.6, 0.7, 0.8], // Second embedding
+];
+
+let features = ObjectsOrderFeatures::new()
+    .with_float_features(&[&[1.0, 2.0]])
+    .with_embedding_features(&[&embeddings]);
+
+let predictions = model.predict(features)?;
+```
 
 ## Configuration
 
 ### CatBoost Version
 
-You can specify which version of CatBoost to download by setting the `CATBOOST_VERSION` environment variable:
+You can specify which version of CatBoost to use by setting the `CATBOOST_VERSION` environment variable:
 
 ```bash
 export CATBOOST_VERSION=1.2.8
 cargo build
 ```
 
-If not specified, it defaults to version `1.2.8`.
+The default version is `1.2.8`.
 
-### Features
+### GPU Support
 
-- `gpu`: Enables GPU support (requires CUDA for source build fallback)
+To enable GPU acceleration, compile with the `gpu` feature:
 
-## Supported Platforms
+```bash
+cargo build --features gpu
+```
 
-- **Linux x86_64**: Downloads `catboost-linux-x86_64-{version}`
-- **Linux aarch64**: Downloads `catboost-linux-aarch64-{version}`
-- **macOS x86_64/aarch64**: Downloads `catboost-darwin-universal2-{version}` (universal binary)
-- **Windows x86_64**: Downloads `catboost-windows-x86_64-{version}.exe`
-
-## How It Works
-
-1. **Binary Download**: The build script attempts to download the appropriate pre-compiled binary for your platform from CatBoost's GitHub releases
-2. **Extraction**: Downloads are automatically extracted to the build output directory
-3. **Fallback**: If download fails (e.g., network issues, unsupported platform), it falls back to building from source using the original Python build script
-4. **Binding Generation**: Rust bindings are generated using `bindgen` from the C++ headers
-
-## API Reference
-
-### Model
+Then enable GPU evaluation in your code:
 
 ```rust
-pub struct Model {
-    // ...
+let model = Model::load("model.cbm")?;
+model.enable_gpu_evaluation()?;
+```
+
+## Model Information
+
+You can inspect model properties:
+
+```rust
+let model = Model::load("model.cbm")?;
+
+println!("Float features: {}", model.get_float_features_count());
+println!("Categorical features: {}", model.get_cat_features_count());
+println!("Text features: {}", model.get_text_features_count());
+println!("Embedding features: {}", model.get_embedding_features_count());
+println!("Trees: {}", model.get_tree_count());
+println!("Dimensions: {}", model.get_dimensions_count());
+```
+
+## Error Handling
+
+The crate provides comprehensive error handling:
+
+```rust
+use catboost::{Model, CatBoostError, CatBoostResult};
+
+fn load_and_predict() -> CatBoostResult<Vec<f64>> {
+    let model = Model::load("model.cbm")?;
+    
+    let features = ObjectsOrderFeatures::new()
+        .with_float_features(&[&[1.0, 2.0, 3.0]]);
+    
+    model.predict(features)
 }
 
-impl Model {
-    /// Load a model from a file
-    pub fn load<P: AsRef<Path>>(path: P) -> CatBoostResult<Self>
-    
-    /// Load a model from a buffer
-    pub fn load_buffer<P: AsRef<Vec<u8>>>(buffer: P) -> CatBoostResult<Self>
-    
-    /// Calculate model predictions
-    pub fn calc_model_prediction<TFloatFeature, TFloatFeatures, TString, TCatFeature, TCatFeatures>(
-        &self,
-        float_features: TFloatFeatures,
-        cat_features: TCatFeatures,
-    ) -> CatBoostResult<Vec<f64>>
-    
-    /// Get number of float features
-    pub fn get_float_features_count(&self) -> usize
-    
-    /// Get number of categorical features
-    pub fn get_cat_features_count(&self) -> usize
-    
-    /// Get number of trees
-    pub fn get_tree_count(&self) -> usize
-    
-    /// Get number of dimensions
-    pub fn get_dimensions_count(&self) -> usize
+match load_and_predict() {
+    Ok(predictions) => println!("Success: {:?}", predictions),
+    Err(CatBoostError { description }) => println!("Error: {}", description),
 }
 ```
 
+## Platform Support
+
+This crate automatically downloads the appropriate CatBoost binary for your platform:
+
+- **Linux**: x86_64, aarch64
+- **macOS**: Universal binary (x86_64 + arm64)
+- **Windows**: x86_64
+
 ## Building from Source
 
-If you need to build from source (e.g., for custom CatBoost modifications):
-
-1. Clone the CatBoost repository
-2. Build the model interface library
-3. Set up the build environment
-4. Use the fallback source build
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+The crate downloads CatBoost binaries at runtime, so no system dependencies are required. However, if you want to build from source, you can set the `CATBOOST_BUILD_FROM_SOURCE` environment variable.
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+## Contributing
 
-- [CatBoost](https://github.com/catboost/catboost) - The original gradient boosting library
-- [bindgen](https://github.com/rust-lang/rust-bindgen) - For generating Rust bindings from C++ headers
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## Troubleshooting
+## Examples
 
-### Common Issues
+See the `examples/` directory for more detailed usage examples:
 
-1. **"No model file found"**
-   - Make sure you've created a model using the Python script
-   - Check that the model file exists in the expected location
+- `basic_usage.rs` - Simple prediction examples
+- `advanced_usage.rs` - Advanced features and model inspection
 
-2. **"Failed to load model"**
-   - Ensure the model file is a valid CatBoost binary format
-   - Check file permissions
+Run examples with:
 
-3. **"Feature count mismatch"**
-   - Make sure your input features match the model's expected feature count
-   - Check the model's `num_features` property
-
-4. **"Binary download failed"**
-   - Check your internet connection
-   - Verify the CatBoost version exists in GitHub releases
-   - The build will automatically fall back to source compilation
-
-### Getting Help
-
-- Check the [examples/](examples/) directory for usage examples
-- Review the API documentation in the source code
-- Run `cargo test` to verify the library is working correctly
-- Open an issue on GitHub for bugs or feature requests
+```bash
+cargo run --example basic_usage
+cargo run --example advanced_usage
+```
