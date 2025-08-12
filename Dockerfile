@@ -1,8 +1,8 @@
 # Use the standard Rust image
 FROM rust:1.85
 
-RUN apt-get update
-RUN apt-get install -y curl build-essential pkg-config libssl-dev libclang-dev clang cmake
+
+RUN apt-get update && apt-get install -y curl build-essential pkg-config libssl-dev libclang-dev clang cmake
 
 
 # Set working directory

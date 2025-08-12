@@ -68,80 +68,67 @@ fn download_model_interface_headers(out_dir: &Path) -> Result<(), Box<dyn std::e
 fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let (os, arch) = get_platform_info();
     let version = get_catboost_version();
-    
-    // Construct download URL for the compiled library
-    let download_url = match (os.as_str(), arch.as_str()) {
-        ("linux", "x86_64") => format!(
-            "https://github.com/catboost/catboost/releases/download/v{}/catboost-linux-x86_64-{}",
-            version, version
+
+    // CORRECT: These URLs and filenames point to the required shared libraries.
+    let (lib_filename, download_url) = match (os.as_str(), arch.as_str()) {
+        ("linux", "x86_64") => (
+            "libcatboostmodel.so".to_string(), // The correct library name for the linker
+            format!(
+                "https://github.com/catboost/catboost/releases/download/v{}/libcatboostmodel-linux-x86_64-{}.so",
+                version,version
+            ),
         ),
-        ("linux", "aarch64") => format!(
-            "https://github.com/catboost/catboost/releases/download/v{}/catboost-linux-aarch64-{}",
-            version, version
+        ("linux", "aarch64") => (
+            "libcatboostmodel.so".to_string(),
+            format!(
+                "https://github.com/catboost/catboost/releases/download/v{}/libcatboostmodel-linux-aarch64-{}.so",
+                version, version
+            ),
         ),
-        ("darwin", "x86_64") => format!(
-            "https://github.com/catboost/catboost/releases/download/v{}/catboost-darwin-universal2-{}",
-            version, version
+        ("darwin", "x86_64") | ("darwin", "aarch64") => (
+            "libcatboostmodel.dylib".to_string(), // The correct library name for macOS
+            format!(
+                "https://github.com/catboost/catboost/releases/download/v{}/libcatboostmodel-darwin-universal2-{}.dylib",
+                version, version
+            ),
         ),
-        ("darwin", "aarch64") => format!(
-            "https://github.com/catboost/catboost/releases/download/v{}/catboost-darwin-universal2-{}",
-            version, version
-        ),
-        ("windows", "x86_64") => format!(
-            "https://github.com/catboost/catboost/releases/download/v{}/catboost-windows-x86_64-{}.exe",
-            version, version
+        ("windows", "x86_64") => (
+            "catboostmodel.dll".to_string(), // The correct library name for Windows
+            format!(
+                "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel.dll",
+                version
+            ),
         ),
         _ => return Err(format!("Unsupported platform: {}-{}", os, arch).into()),
     };
-    
-    println!("cargo:warning=Downloading CatBoost v{} binary from: {}", version, download_url);
-    
-    // Create download directory
-    let download_dir = out_dir.join("download");
-    fs::create_dir_all(&download_dir)?;
-    
-    // Download the binary
+
+    println!(
+        "cargo:warning=Downloading CatBoost v{} library from: {}",
+        version, download_url
+    );
+
+    // Create the library directory
+    let lib_dir = out_dir.join("libs");
+    fs::create_dir_all(&lib_dir)?;
+
+    // Download the library directly into the `libs` directory with its correct name
+    let lib_path = lib_dir.join(&lib_filename);
+    let mut dest = fs::File::create(&lib_path)?;
+
     let response = ureq::get(&download_url).call()?;
     let status = response.status();
     if status < 200 || status >= 300 {
-        return Err(format!("Failed to download binary: HTTP {}", status).into());
+        return Err(format!("Failed to download library: HTTP {}", status).into());
     }
-    
-    let archive_path = download_dir.join("catboost-binary");
-    let mut file = fs::File::create(&archive_path)?;
-    io::copy(&mut response.into_reader(), &mut file)?;
-    
-    // Extract or copy the binary to the appropriate location
-    let lib_dir = out_dir.join("libs");
-    fs::create_dir_all(&lib_dir)?;
-    
-    if download_url.ends_with(".tar.gz") {
-        let file = fs::File::open(&archive_path)?;
-        let gz = flate2::read::GzDecoder::new(file);
-        let mut archive = tar::Archive::new(gz);
-        archive.unpack(&lib_dir)?;
-    } else if download_url.ends_with(".zip") {
-        let file = fs::File::open(&archive_path)?;
-        let mut archive = zip::ZipArchive::new(file)?;
-        archive.extract(&lib_dir)?;
-    } else {
-        // For uncompressed files, just copy to the lib directory
-        let final_path = lib_dir.join("catboost");
-        fs::copy(&archive_path, &final_path)?;
-        // Make executable on Unix systems
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&final_path)?.permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(&final_path, perms)?;
-        }
-    }
-    
-    // Clean up download
-    fs::remove_file(archive_path)?;
-    fs::remove_dir_all(download_dir)?;
-    
+
+    // SIMPLIFIED: No need for extraction, just copy the downloaded content
+    io::copy(&mut response.into_reader(), &mut dest)?;
+
+    println!(
+        "cargo:warning=Downloaded CatBoost library to: {}",
+        lib_path.display()
+    );
+
     Ok(())
 }
 

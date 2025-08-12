@@ -7,6 +7,8 @@ use crate::features::{
 use crate::sys;
 use std::ffi::{CStr,CString};
 use std::path::Path;
+use std::os::raw::c_char;
+
 
 pub struct Model {
     handle: *mut sys::ModelCalcerHandle,
@@ -149,7 +151,7 @@ impl Model {
 
         let mut text_features_ptr = text_features_ptr_storage
             .iter_mut()
-            .map(|object_texts_ptrs: &mut Vec<*const i8>| object_texts_ptrs.as_mut_ptr())
+            .map(|object_texts_ptrs: &mut Vec<*const c_char>| object_texts_ptrs.as_mut_ptr())
             .collect::<Vec<_>>();
 
         let mut embedding_dimensions = if !features.embedding_features.as_ref().is_empty() {
@@ -245,12 +247,12 @@ impl Model {
 
     /// Get number of trees in model
     pub fn get_tree_count(&self) -> usize {
-        unsafe { sys::GetTreeCount(self.handle) }
+        unsafe { sys::GetTreeCount(self.handle)}
     }
 
     /// Get number of dimensions in model
     pub fn get_dimensions_count(&self) -> usize {
-        unsafe { sys::GetDimensionsCount(self.handle) }
+        unsafe { sys::GetDimensionsCount(self.handle)}
     }
 
     pub fn enable_gpu_evaluation(&self) -> CatBoostResult<()> {
