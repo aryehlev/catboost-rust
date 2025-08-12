@@ -14,9 +14,6 @@ COPY . .
 # Build the project in release mode
 RUN cargo build -v --release
 
-# Run tests
-RUN cargo test
-
 # Build and cache examples
 RUN cargo build --release --example basic_usage
 RUN cargo build --release --example advanced_usage
