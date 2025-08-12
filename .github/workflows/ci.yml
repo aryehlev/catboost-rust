@@ -1,0 +1,208 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test ${{ matrix.os }} (Rust ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux - x86_64
+          - os: ubuntu-latest
+            rust: stable
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            rust: 1.70
+            target: x86_64-unknown-linux-gnu
+          # Linux - aarch64 (ARM64)
+          - os: ubuntu-latest
+            rust: stable
+            target: aarch64-unknown-linux-gnu
+          # Linux - i686 (32-bit x86)
+          - os: ubuntu-latest
+            rust: stable
+            target: i686-unknown-linux-gnu
+          # macOS
+          - os: macos-latest
+            rust: stable
+            target: x86_64-apple-darwin
+          # macOS - ARM64 (Apple Silicon)
+          - os: macos-latest
+            rust: stable
+            target: aarch64-apple-darwin
+          # Windows
+          - os: windows-latest
+            rust: stable
+            target: x86_64-pc-windows-msvc
+          # Windows - 32-bit
+          - os: windows-latest
+            rust: stable
+            target: i686-pc-windows-msvc
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ matrix.rust }}
+        target: ${{ matrix.target }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Build
+      run: cargo build --verbose
+
+    - name: Run tests
+      run: cargo test --verbose
+
+    - name: Run examples
+      run: cargo run --example basic_usage
+
+  test-gpu:
+    name: Test GPU feature
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: [stable, 1.70]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ matrix.rust }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-gpu-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-gpu-
+
+    - name: Build with GPU feature
+      run: cargo build --verbose --features gpu
+
+    - name: Test with GPU feature
+      run: cargo test --verbose --features gpu
+
+    - name: Run GPU example
+      run: cargo run --example gpu_usage --features gpu
+
+  lint:
+    name: Lint and format check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: [stable, 1.70]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ matrix.rust }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-lint-
+
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+    - name: Run clippy
+      run: cargo clippy -- -D warnings
+
+    - name: Check documentation
+      run: cargo doc --no-deps
+
+  security:
+    name: Security audit
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Run security audit
+      run: cargo audit
+
+  docker:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      run: docker build -t catboost-rust:latest .
+
+    - name: Test Docker image
+      run: |
+        docker run --rm catboost-rust:latest cargo --version
+        docker run --rm catboost-rust:latest cargo test
+
+  build-docs:
+    name: Build documentation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Build documentation
+      run: cargo doc --no-deps --document-private-items
+
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./target/doc
