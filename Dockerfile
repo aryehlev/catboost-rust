@@ -12,7 +12,7 @@ WORKDIR /app
 COPY . .
 
 # Build the project in release mode
-RUN cargo build --release
+RUN cargo build -v --release
 
 # Run tests
 RUN cargo test
