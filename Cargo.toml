@@ -8,7 +8,7 @@ repository = "https://github.com/aryehlev/catboost-rust"
 keywords = ["machine-learning", "gradient-boosting", "catboost", "ml"]
 categories = ["science"]
 readme = "README.md"
-rust-version = "1.70"
+rust-version = "1.85"
 
 [build-dependencies]
 bindgen = "~0.59"
