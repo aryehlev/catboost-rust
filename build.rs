@@ -160,13 +160,44 @@ fn main() {
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Couldn't write bindings.");
 
-    // Set up library search path
+    // 1. Get platform info using your existing function
+    let (os, _arch) = get_platform_info();
+
+    // 2. Determine the library filename based on the OS
+    let lib_filename = match os.as_str() {
+        "windows" => "catboostmodel.dll",
+        "darwin" => "libcatboostmodel.dylib", // "darwin" comes from your function
+        _ => "libcatboostmodel.so", // Default to Linux/Unix
+    };
+
+    // 3. Copy the library from OUT_DIR/libs to the final target directory
+    let lib_source_path = out_dir.join("libs").join(lib_filename);
+
+    // Find the final output directory (e.g., target/release)
+    let target_dir = out_dir.ancestors().find(|p| p.ends_with("target")).unwrap().join(env::var("PROFILE").unwrap());
+
+    let lib_dest_path = target_dir.join(lib_filename);
+    fs::copy(&lib_source_path, &lib_dest_path).expect("Failed to copy library to target directory");
+
+    // 4. Set the library search path for the build-time linker
     let lib_search_path = out_dir.join("libs");
-    if lib_search_path.exists() {
-        println!(
-            "cargo:rustc-link-search={}",
-            lib_search_path.display()
-        );
+    println!(
+        "cargo:rustc-link-search=native={}",
+        lib_search_path.display()
+    );
+    println!("cargo:rustc-link-lib=dylib=catboostmodel");
+
+    // 5. Set the rpath for the run-time linker based on the OS
+    match os.as_str() {
+        "darwin" => {
+            // For macOS, use @executable_path
+            println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
+        },
+        "linux" => {
+            // For Linux, use $ORIGIN
+            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+        },
+        _ => {} // No rpath needed for Windows
     }
 
     println!("cargo:rustc-link-lib=dylib=catboostmodel");
