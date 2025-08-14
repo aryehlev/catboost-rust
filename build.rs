@@ -185,7 +185,6 @@ fn main() {
         "cargo:rustc-link-search=native={}",
         lib_search_path.display()
     );
-    println!("cargo:rustc-link-lib=dylib=catboostmodel");
 
     // 5. Set the rpath for the run-time linker based on the OS
     match os.as_str() {
