@@ -189,12 +189,21 @@ fn main() {
     // 5. Set the rpath for the run-time linker based on the OS
     match os.as_str() {
         "darwin" => {
-            // For macOS, use @executable_path
+            // For macOS, add multiple rpath entries for IDE compatibility
             println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
+            println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../..");
+            println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_search_path.display());
+            // Add the target directory to rpath as well
+            if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
+                println!("cargo:rustc-link-arg=-Wl,-rpath,{}/debug", target_root.display());
+                println!("cargo:rustc-link-arg=-Wl,-rpath,{}/release", target_root.display());
+            }
         },
         "linux" => {
             // For Linux, use $ORIGIN
             println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../..");
+            println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_search_path.display());
         },
         _ => {} // No rpath needed for Windows
     }
