@@ -179,6 +179,37 @@ fn main() {
     let lib_dest_path = target_dir.join(lib_filename);
     fs::copy(&lib_source_path, &lib_dest_path).expect("Failed to copy library to target directory");
 
+    // On macOS/Linux, change the install name/soname to use @loader_path/$ORIGIN
+    // This needs to be done on the source library in OUT_DIR before linking
+    if os == "darwin" {
+        use std::process::Command;
+        let _ = Command::new("install_name_tool")
+            .arg("-id")
+            .arg(format!("@loader_path/{}", lib_filename))
+            .arg(&lib_source_path)
+            .status();
+        // Also update the copy
+        let _ = Command::new("install_name_tool")
+            .arg("-id")
+            .arg(format!("@loader_path/{}", lib_filename))
+            .arg(&lib_dest_path)
+            .status();
+    } else if os == "linux" {
+        use std::process::Command;
+        // Use patchelf to set soname to $ORIGIN on Linux (if available)
+        // This is optional - if patchelf is not installed, we just skip it
+        let _ = Command::new("patchelf")
+            .arg("--set-soname")
+            .arg(format!("$ORIGIN/{}", lib_filename))
+            .arg(&lib_source_path)
+            .output(); // Use output() to silently ignore if patchelf doesn't exist
+        let _ = Command::new("patchelf")
+            .arg("--set-soname")
+            .arg(format!("$ORIGIN/{}", lib_filename))
+            .arg(&lib_dest_path)
+            .output();
+    }
+
     // 4. Set the library search path for the build-time linker
     let lib_search_path = out_dir.join("libs");
     println!(
