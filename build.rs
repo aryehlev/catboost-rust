@@ -192,6 +192,8 @@ fn main() {
             // For macOS, add multiple rpath entries for IDE compatibility
             println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
             println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../..");
+            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
+            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path/../..");
             println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_search_path.display());
             // Add the target directory to rpath as well
             if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
@@ -204,6 +206,11 @@ fn main() {
             println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
             println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../..");
             println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_search_path.display());
+            // Add the target directory to rpath as well
+            if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
+                println!("cargo:rustc-link-arg=-Wl,-rpath,{}/debug", target_root.display());
+                println!("cargo:rustc-link-arg=-Wl,-rpath,{}/release", target_root.display());
+            }
         },
         _ => {} // No rpath needed for Windows
     }
