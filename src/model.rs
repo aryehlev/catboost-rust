@@ -183,23 +183,54 @@ impl Model {
             .collect::<Vec<_>>();
 
         let mut prediction = vec![0.0; object_count.unwrap() * self.get_dimensions_count()];
-        CatBoostError::check_return_value(unsafe {
-            sys::CalcModelPredictionWithHashedCatFeaturesAndTextAndEmbeddingFeatures(
-                self.handle,
-                object_count.unwrap(),
-                float_features_ptr.as_mut_ptr(),
-                if features.float_features.as_ref().is_empty() { 0 } else { features.float_features.as_ref()[0].as_ref().len() },
-                hashed_cat_features_ptr.as_mut_ptr(),
-                if features.cat_features.as_ref().is_empty() { 0 } else { features.cat_features.as_ref()[0].as_ref().len() },
-                text_features_ptr.as_mut_ptr(),
-                if features.text_features.as_ref().is_empty() { 0 } else { features.text_features.as_ref()[0].as_ref().len() },
-                embedding_features_ptr.as_mut_ptr(),
-                embedding_dimensions.as_mut_ptr(),
-                embedding_dimensions.len(),
-                prediction.as_mut_ptr(),
-                prediction.len(),
-            )
-        })?;
+
+        #[cfg(catboost_embeddings)]
+        {
+            // v1.1.1+: Use function with embedding support
+            CatBoostError::check_return_value(unsafe {
+                sys::CalcModelPredictionWithHashedCatFeaturesAndTextAndEmbeddingFeatures(
+                    self.handle,
+                    object_count.unwrap(),
+                    float_features_ptr.as_mut_ptr(),
+                    if features.float_features.as_ref().is_empty() { 0 } else { features.float_features.as_ref()[0].as_ref().len() },
+                    hashed_cat_features_ptr.as_mut_ptr(),
+                    if features.cat_features.as_ref().is_empty() { 0 } else { features.cat_features.as_ref()[0].as_ref().len() },
+                    text_features_ptr.as_mut_ptr(),
+                    if features.text_features.as_ref().is_empty() { 0 } else { features.text_features.as_ref()[0].as_ref().len() },
+                    embedding_features_ptr.as_mut_ptr(),
+                    embedding_dimensions.as_mut_ptr(),
+                    embedding_dimensions.len(),
+                    prediction.as_mut_ptr(),
+                    prediction.len(),
+                )
+            })?;
+        }
+
+        #[cfg(not(catboost_embeddings))]
+        {
+            // v1.0.x: Use function without embedding support (embeddings will be ignored)
+            if !features.embedding_features.as_ref().is_empty() {
+                return Err(CatBoostError {
+                    description: "Embedding features are not supported in this CatBoost version. Please use v1.1.1 or later.".to_string()
+                });
+            }
+
+            CatBoostError::check_return_value(unsafe {
+                sys::CalcModelPredictionWithHashedCatFeaturesAndTextFeatures(
+                    self.handle,
+                    object_count.unwrap(),
+                    float_features_ptr.as_mut_ptr(),
+                    if features.float_features.as_ref().is_empty() { 0 } else { features.float_features.as_ref()[0].as_ref().len() },
+                    hashed_cat_features_ptr.as_mut_ptr(),
+                    if features.cat_features.as_ref().is_empty() { 0 } else { features.cat_features.as_ref()[0].as_ref().len() },
+                    text_features_ptr.as_mut_ptr(),
+                    if features.text_features.as_ref().is_empty() { 0 } else { features.text_features.as_ref()[0].as_ref().len() },
+                    prediction.as_mut_ptr(),
+                    prediction.len(),
+                )
+            })?;
+        }
+
         Ok(prediction)
     }
 
@@ -237,13 +268,29 @@ impl Model {
     }
 
     /// Get expected text feature count for model
+    /// Only available in CatBoost v1.2+
+    #[cfg(catboost_text_count)]
     pub fn get_text_features_count(&self) -> usize {
         unsafe { sys::GetTextFeaturesCount(self.handle) }
     }
 
+    /// Get expected text feature count for model (returns 0 for older versions)
+    #[cfg(not(catboost_text_count))]
+    pub fn get_text_features_count(&self) -> usize {
+        0
+    }
+
     /// Get expected embedding feature count for model
+    /// Only available in CatBoost v1.1.1+
+    #[cfg(catboost_embeddings)]
     pub fn get_embedding_features_count(&self) -> usize {
         unsafe { sys::GetEmbeddingFeaturesCount(self.handle) }
+    }
+
+    /// Get expected embedding feature count for model (returns 0 for older versions)
+    #[cfg(not(catboost_embeddings))]
+    pub fn get_embedding_features_count(&self) -> usize {
+        0
     }
 
     /// Get number of trees in model
