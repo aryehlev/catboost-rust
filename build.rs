@@ -106,8 +106,15 @@ fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::E
             ("windows", "x86_64") => (
                 "catboostmodel.dll".to_string(),
                 format!(
-                    "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel.dll",
-                    version
+                    "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel-windows-x86_64-{}.dll",
+                    version, version
+                ),
+            ),
+            ("windows", "aarch64") => (
+                "catboostmodel.dll".to_string(),
+                format!(
+                    "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel-windows-aarch64-{}.dll",
+                    version, version
                 ),
             ),
             _ => return Err(format!("Unsupported platform: {}-{}", os, arch).into()),
