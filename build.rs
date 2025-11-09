@@ -248,6 +248,37 @@ fn main() {
     let lib_dest_path = target_dir.join(lib_filename);
     fs::copy(&lib_source_path, &lib_dest_path).expect("Failed to copy library to target directory");
 
+    // On macOS/Linux, change the install name/soname to use @loader_path/$ORIGIN
+    // This needs to be done on the source library in OUT_DIR before linking
+    if os == "darwin" {
+        use std::process::Command;
+        let _ = Command::new("install_name_tool")
+            .arg("-id")
+            .arg(format!("@loader_path/{}", lib_filename))
+            .arg(&lib_source_path)
+            .status();
+        // Also update the copy
+        let _ = Command::new("install_name_tool")
+            .arg("-id")
+            .arg(format!("@loader_path/{}", lib_filename))
+            .arg(&lib_dest_path)
+            .status();
+    } else if os == "linux" {
+        use std::process::Command;
+        // Use patchelf to set soname to just the library filename on Linux (if available)
+        // This is optional - if patchelf is not installed, we just skip it
+        let _ = Command::new("patchelf")
+            .arg("--set-soname")
+            .arg(&lib_filename)
+            .arg(&lib_source_path)
+            .output(); // Use output() to silently ignore if patchelf doesn't exist
+        let _ = Command::new("patchelf")
+            .arg("--set-soname")
+            .arg(&lib_filename)
+            .arg(&lib_dest_path)
+            .output();
+    }
+
     // 4. Set the library search path for the build-time linker
     let lib_search_path = out_dir.join("libs");
     println!(
@@ -261,6 +292,8 @@ fn main() {
             // For macOS, add multiple rpath entries for IDE compatibility
             println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
             println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../..");
+            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
+            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path/../..");
             println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_search_path.display());
             // Add the target directory to rpath as well
             if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
@@ -273,6 +306,11 @@ fn main() {
             println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
             println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../..");
             println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_search_path.display());
+            // Add the target directory to rpath as well
+            if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
+                println!("cargo:rustc-link-arg=-Wl,-rpath,{}/debug", target_root.display());
+                println!("cargo:rustc-link-arg=-Wl,-rpath,{}/release", target_root.display());
+            }
         },
         _ => {} // No rpath needed for Windows
     }
