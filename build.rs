@@ -196,16 +196,16 @@ fn main() {
             .status();
     } else if os == "linux" {
         use std::process::Command;
-        // Use patchelf to set soname to $ORIGIN on Linux (if available)
+        // Use patchelf to set soname to just the library filename on Linux (if available)
         // This is optional - if patchelf is not installed, we just skip it
         let _ = Command::new("patchelf")
             .arg("--set-soname")
-            .arg(format!("$ORIGIN/{}", lib_filename))
+            .arg(&lib_filename)
             .arg(&lib_source_path)
             .output(); // Use output() to silently ignore if patchelf doesn't exist
         let _ = Command::new("patchelf")
             .arg("--set-soname")
-            .arg(format!("$ORIGIN/{}", lib_filename))
+            .arg(&lib_filename)
             .arg(&lib_dest_path)
             .output();
     }
