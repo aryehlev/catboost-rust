@@ -69,37 +69,82 @@ fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::E
     let (os, arch) = get_platform_info();
     let version = get_catboost_version();
 
-    // CORRECT: These URLs and filenames point to the required shared libraries.
-    let (lib_filename, download_url) = match (os.as_str(), arch.as_str()) {
-        ("linux", "x86_64") => (
-            "libcatboostmodel.so".to_string(), // The correct library name for the linker
-            format!(
-                "https://github.com/catboost/catboost/releases/download/v{}/libcatboostmodel-linux-x86_64-{}.so",
-                version,version
+    // Parse version to determine URL format
+    // v1.0.x - v1.1.x use simple filenames
+    // v1.2+ use platform-specific versioned filenames
+    let version_parts: Vec<&str> = version.split('.').collect();
+    let major: u32 = version_parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let minor: u32 = version_parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    let use_new_format = major > 1 || (major == 1 && minor >= 2);
+
+    // Determine download URL based on version and platform
+    let (lib_filename, download_url) = if use_new_format {
+        // v1.2+ format with platform and version in filename
+        match (os.as_str(), arch.as_str()) {
+            ("linux", "x86_64") => (
+                "libcatboostmodel.so".to_string(),
+                format!(
+                    "https://github.com/catboost/catboost/releases/download/v{}/libcatboostmodel-linux-x86_64-{}.so",
+                    version, version
+                ),
             ),
-        ),
-        ("linux", "aarch64") => (
-            "libcatboostmodel.so".to_string(),
-            format!(
-                "https://github.com/catboost/catboost/releases/download/v{}/libcatboostmodel-linux-aarch64-{}.so",
-                version, version
+            ("linux", "aarch64") => (
+                "libcatboostmodel.so".to_string(),
+                format!(
+                    "https://github.com/catboost/catboost/releases/download/v{}/libcatboostmodel-linux-aarch64-{}.so",
+                    version, version
+                ),
             ),
-        ),
-        ("darwin", "x86_64") | ("darwin", "aarch64") => (
-            "libcatboostmodel.dylib".to_string(), // The correct library name for macOS
-            format!(
-                "https://github.com/catboost/catboost/releases/download/v{}/libcatboostmodel-darwin-universal2-{}.dylib",
-                version, version
+            ("darwin", "x86_64") | ("darwin", "aarch64") => (
+                "libcatboostmodel.dylib".to_string(),
+                format!(
+                    "https://github.com/catboost/catboost/releases/download/v{}/libcatboostmodel-darwin-universal2-{}.dylib",
+                    version, version
+                ),
             ),
-        ),
-        ("windows", "x86_64") => (
-            "catboostmodel.dll".to_string(), // The correct library name for Windows
-            format!(
-                "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel.dll",
-                version
+            ("windows", "x86_64") => (
+                "catboostmodel.dll".to_string(),
+                format!(
+                    "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel-windows-x86_64-{}.dll",
+                    version, version
+                ),
             ),
-        ),
-        _ => return Err(format!("Unsupported platform: {}-{}", os, arch).into()),
+            ("windows", "aarch64") => (
+                "catboostmodel.dll".to_string(),
+                format!(
+                    "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel-windows-aarch64-{}.dll",
+                    version, version
+                ),
+            ),
+            _ => return Err(format!("Unsupported platform: {}-{}", os, arch).into()),
+        }
+    } else {
+        // v1.0.x - v1.1.x format with simple filenames
+        match os.as_str() {
+            "linux" => (
+                "libcatboostmodel.so".to_string(),
+                format!(
+                    "https://github.com/catboost/catboost/releases/download/v{}/libcatboostmodel.so",
+                    version
+                ),
+            ),
+            "darwin" => (
+                "libcatboostmodel.dylib".to_string(),
+                format!(
+                    "https://github.com/catboost/catboost/releases/download/v{}/libcatboostmodel.dylib",
+                    version
+                ),
+            ),
+            "windows" => (
+                "catboostmodel.dll".to_string(),
+                format!(
+                    "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel.dll",
+                    version
+                ),
+            ),
+            _ => return Err(format!("Unsupported platform: {}", os).into()),
+        }
     };
 
     println!(
@@ -135,6 +180,30 @@ fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::E
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let cb_model_interface_root = out_dir.join("libs/model_interface");
+
+    // Parse version for feature detection
+    let version = get_catboost_version();
+    let version_parts: Vec<&str> = version.split('.').collect();
+    let major: u32 = version_parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let minor: u32 = version_parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let patch: u32 = version_parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    // Emit cfg flags for version-specific features
+    // v1.1.1+: Embedding features support
+    if major > 1 || (major == 1 && minor > 1) || (major == 1 && minor == 1 && patch >= 1) {
+        println!("cargo:rustc-cfg=catboost_embeddings");
+    }
+
+    // v1.2+: Text features count function
+    if major > 1 || (major == 1 && minor >= 2) {
+        println!("cargo:rustc-cfg=catboost_text_count");
+    }
+
+    // v1.2.3+: Staged predictions and feature indices
+    if major > 1 || (major == 1 && minor > 2) || (major == 1 && minor == 2 && patch >= 3) {
+        println!("cargo:rustc-cfg=catboost_staged_prediction");
+        println!("cargo:rustc-cfg=catboost_feature_indices");
+    }
 
     // Download the model interface headers
     if let Err(e) = download_model_interface_headers(&out_dir) {
