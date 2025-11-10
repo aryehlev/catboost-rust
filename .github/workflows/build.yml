@@ -145,6 +145,11 @@ jobs:
       with:
         components: clippy
 
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libclang-dev
+
     - name: Run clippy (no features)
       run: cargo clippy -- -D warnings
 
@@ -172,9 +177,14 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Test with CatBoost 1.2.0
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libclang-dev
+
+    - name: Test with CatBoost 1.2.1
       env:
-        CATBOOST_VERSION: "1.2.0"
+        CATBOOST_VERSION: "1.2.1"
       run: |
         cargo check --verbose
         cargo build --verbose

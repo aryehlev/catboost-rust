@@ -54,7 +54,7 @@ fn download_model_interface_headers(out_dir: &Path) -> Result<(), Box<dyn std::e
     
     let response = ureq::get(&c_api_url).call()?;
     let status = response.status();
-    if status < 200 || status >= 300 {
+    if !(200..300).contains(&status) {
         return Err(format!("Failed to download c_api.h: HTTP {}", status).into());
     }
     
@@ -69,11 +69,15 @@ fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::E
     let (os, arch) = get_platform_info();
     let version = get_catboost_version();
 
+    // Create the library directory early
+    let lib_dir = out_dir.join("libs");
+    fs::create_dir_all(&lib_dir)?;
+
     // Parse version to determine URL format
     // v1.0.x - v1.1.x use simple filenames
     // v1.2+ use platform-specific versioned filenames
     let version_parts: Vec<&str> = version.split('.').collect();
-    let major: u32 = version_parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let major: u32 = version_parts.first().and_then(|s| s.parse().ok()).unwrap_or(1);
     let minor: u32 = version_parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
 
     let use_new_format = major > 1 || (major == 1 && minor >= 2);
@@ -103,13 +107,43 @@ fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::E
                     version, version
                 ),
             ),
-            ("windows", "x86_64") => (
-                "catboostmodel.dll".to_string(),
-                format!(
+            ("windows", "x86_64") => {
+                // On Windows, we need to download both the DLL and LIB files
+                // First download the DLL
+                let dll_url = format!(
                     "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel-windows-x86_64-{}.dll",
                     version, version
-                ),
-            ),
+                );
+                println!("cargo:warning=Downloading Windows DLL from: {}", dll_url);
+                let dll_response = ureq::get(&dll_url).call()?;
+                if !(200..300).contains(&dll_response.status()) {
+                    return Err(format!("Failed to download DLL: HTTP {}", dll_response.status()).into());
+                }
+                let dll_path = lib_dir.join("catboostmodel.dll");
+                let mut dll_file = fs::File::create(&dll_path)?;
+                io::copy(&mut dll_response.into_reader(), &mut dll_file)?;
+
+                // Then download the LIB file
+                let lib_url = format!(
+                    "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel-windows-x86_64-{}.lib",
+                    version, version
+                );
+                println!("cargo:warning=Downloading Windows LIB from: {}", lib_url);
+                let lib_response = ureq::get(&lib_url).call()?;
+                if !(200..300).contains(&lib_response.status()) {
+                    return Err(format!("Failed to download LIB: HTTP {}", lib_response.status()).into());
+                }
+                let lib_path = lib_dir.join("catboostmodel.lib");
+                let mut lib_file = fs::File::create(&lib_path)?;
+                io::copy(&mut lib_response.into_reader(), &mut lib_file)?;
+
+                // Return early for Windows since we've already downloaded both files
+                println!(
+                    "cargo:warning=Downloaded CatBoost library to: {}",
+                    dll_path.display()
+                );
+                return Ok(());
+            },
             ("windows", "aarch64") => (
                 "catboostmodel.dll".to_string(),
                 format!(
@@ -136,13 +170,43 @@ fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::E
                     version
                 ),
             ),
-            "windows" => (
-                "catboostmodel.dll".to_string(),
-                format!(
+            "windows" => {
+                // On Windows, we need to download both the DLL and LIB files
+                // First download the DLL
+                let dll_url = format!(
                     "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel.dll",
                     version
-                ),
-            ),
+                );
+                println!("cargo:warning=Downloading Windows DLL from: {}", dll_url);
+                let dll_response = ureq::get(&dll_url).call()?;
+                if !(200..300).contains(&dll_response.status()) {
+                    return Err(format!("Failed to download DLL: HTTP {}", dll_response.status()).into());
+                }
+                let dll_path = lib_dir.join("catboostmodel.dll");
+                let mut dll_file = fs::File::create(&dll_path)?;
+                io::copy(&mut dll_response.into_reader(), &mut dll_file)?;
+
+                // Then download the LIB file
+                let lib_url = format!(
+                    "https://github.com/catboost/catboost/releases/download/v{}/catboostmodel.lib",
+                    version
+                );
+                println!("cargo:warning=Downloading Windows LIB from: {}", lib_url);
+                let lib_response = ureq::get(&lib_url).call()?;
+                if !(200..300).contains(&lib_response.status()) {
+                    return Err(format!("Failed to download LIB: HTTP {}", lib_response.status()).into());
+                }
+                let lib_path = lib_dir.join("catboostmodel.lib");
+                let mut lib_file = fs::File::create(&lib_path)?;
+                io::copy(&mut lib_response.into_reader(), &mut lib_file)?;
+
+                // Return early for Windows since we've already downloaded both files
+                println!(
+                    "cargo:warning=Downloaded CatBoost library to: {}",
+                    dll_path.display()
+                );
+                return Ok(());
+            },
             _ => return Err(format!("Unsupported platform: {}", os).into()),
         }
     };
@@ -152,17 +216,13 @@ fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::E
         version, download_url
     );
 
-    // Create the library directory
-    let lib_dir = out_dir.join("libs");
-    fs::create_dir_all(&lib_dir)?;
-
     // Download the library directly into the `libs` directory with its correct name
     let lib_path = lib_dir.join(&lib_filename);
     let mut dest = fs::File::create(&lib_path)?;
 
     let response = ureq::get(&download_url).call()?;
     let status = response.status();
-    if status < 200 || status >= 300 {
+    if !(200..300).contains(&status) {
         return Err(format!("Failed to download library: HTTP {}", status).into());
     }
 
@@ -181,10 +241,16 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let cb_model_interface_root = out_dir.join("libs/model_interface");
 
+    // Declare custom cfg flags for Cargo's check-cfg feature
+    println!("cargo::rustc-check-cfg=cfg(catboost_embeddings)");
+    println!("cargo::rustc-check-cfg=cfg(catboost_text_count)");
+    println!("cargo::rustc-check-cfg=cfg(catboost_staged_prediction)");
+    println!("cargo::rustc-check-cfg=cfg(catboost_feature_indices)");
+
     // Parse version for feature detection
     let version = get_catboost_version();
     let version_parts: Vec<&str> = version.split('.').collect();
-    let major: u32 = version_parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let major: u32 = version_parts.first().and_then(|s| s.parse().ok()).unwrap_or(1);
     let minor: u32 = version_parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
     let patch: u32 = version_parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
 
@@ -221,7 +287,6 @@ fn main() {
         .header("wrapper.h")
         .clang_arg(format!("-I{}", cb_model_interface_root.display()))
         .size_t_is_usize(true)
-        .rustfmt_bindings(true)
         .generate()
         .expect("Unable to generate bindings.");
 
@@ -269,12 +334,12 @@ fn main() {
         // This is optional - if patchelf is not installed, we just skip it
         let _ = Command::new("patchelf")
             .arg("--set-soname")
-            .arg(&lib_filename)
+            .arg(lib_filename)
             .arg(&lib_source_path)
             .output(); // Use output() to silently ignore if patchelf doesn't exist
         let _ = Command::new("patchelf")
             .arg("--set-soname")
-            .arg(&lib_filename)
+            .arg(lib_filename)
             .arg(&lib_dest_path)
             .output();
     }
