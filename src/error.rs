@@ -1,6 +1,6 @@
+use crate::sys;
 use std::ffi::CStr;
 use std::fmt;
-use crate::sys;
 
 pub type CatBoostResult<T> = std::result::Result<T, CatBoostError>;
 

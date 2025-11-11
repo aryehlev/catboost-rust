@@ -28,12 +28,6 @@ jobs:
             runner: macos-14
             catboost_version: "1.2.5"
 
-          # macOS x86_64 (Intel)
-          - os: macos
-            arch: x86_64
-            runner: macos-15-large
-            catboost_version: "1.2.7"
-
           # Linux x86_64
           - os: linux
             arch: x86_64
