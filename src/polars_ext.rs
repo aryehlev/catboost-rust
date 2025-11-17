@@ -208,11 +208,7 @@ macro_rules! get_checked_value {
     ($ca:expr, $idx:expr) => {{
         if $idx >= $ca.len() {
             return Err(CatBoostError {
-                description: format!(
-                    "Index {} out of bounds (length: {})",
-                    $idx,
-                    $ca.len()
-                ),
+                description: format!("Index {} out of bounds (length: {})", $idx, $ca.len()),
             });
         }
         $ca.get($idx).ok_or_else(|| CatBoostError {
