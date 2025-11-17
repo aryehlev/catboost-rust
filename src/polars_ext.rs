@@ -203,6 +203,24 @@ fn dataframe_to_cat_features(df: &DataFrame) -> CatBoostResult<Vec<Vec<String>>>
     Ok(result)
 }
 
+/// Helper to extract a value from a ChunkedArray with explicit bounds and null checking
+macro_rules! get_checked_value {
+    ($ca:expr, $idx:expr) => {{
+        if $idx >= $ca.len() {
+            return Err(CatBoostError {
+                description: format!(
+                    "Index {} out of bounds (length: {})",
+                    $idx,
+                    $ca.len()
+                ),
+            });
+        }
+        $ca.get($idx).ok_or_else(|| CatBoostError {
+            description: format!("Null value at index {}", $idx),
+        })?
+    }};
+}
+
 /// Extract an f32 value from a Series at the given index
 fn extract_f32_value(series: &Series, idx: usize) -> CatBoostResult<f32> {
     use DataType::*;
@@ -212,95 +230,68 @@ fn extract_f32_value(series: &Series, idx: usize) -> CatBoostResult<f32> {
             let ca = series.f32().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to f32: {}", e),
             })?;
-            ca.get(idx).ok_or_else(|| CatBoostError {
-                description: format!("Null value at index {}", idx),
-            })
+            Ok(get_checked_value!(ca, idx))
         }
         Float64 => {
             let ca = series.f64().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to f64: {}", e),
             })?;
-            Ok(ca.get(idx).ok_or_else(|| CatBoostError {
-                description: format!("Null value at index {}", idx),
-            })? as f32)
+            Ok(get_checked_value!(ca, idx) as f32)
         }
         Int8 => {
             let ca = series.i8().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to i8: {}", e),
             })?;
-            Ok(ca.get(idx).ok_or_else(|| CatBoostError {
-                description: format!("Null value at index {}", idx),
-            })? as f32)
+            Ok(get_checked_value!(ca, idx) as f32)
         }
         Int16 => {
             let ca = series.i16().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to i16: {}", e),
             })?;
-            Ok(ca.get(idx).ok_or_else(|| CatBoostError {
-                description: format!("Null value at index {}", idx),
-            })? as f32)
+            Ok(get_checked_value!(ca, idx) as f32)
         }
         Int32 => {
             let ca = series.i32().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to i32: {}", e),
             })?;
-            Ok(ca.get(idx).ok_or_else(|| CatBoostError {
-                description: format!("Null value at index {}", idx),
-            })? as f32)
+            Ok(get_checked_value!(ca, idx) as f32)
         }
         Int64 => {
             let ca = series.i64().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to i64: {}", e),
             })?;
-            Ok(ca.get(idx).ok_or_else(|| CatBoostError {
-                description: format!("Null value at index {}", idx),
-            })? as f32)
+            Ok(get_checked_value!(ca, idx) as f32)
         }
         UInt8 => {
             let ca = series.u8().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to u8: {}", e),
             })?;
-            Ok(ca.get(idx).ok_or_else(|| CatBoostError {
-                description: format!("Null value at index {}", idx),
-            })? as f32)
+            Ok(get_checked_value!(ca, idx) as f32)
         }
         UInt16 => {
             let ca = series.u16().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to u16: {}", e),
             })?;
-            Ok(ca.get(idx).ok_or_else(|| CatBoostError {
-                description: format!("Null value at index {}", idx),
-            })? as f32)
+            Ok(get_checked_value!(ca, idx) as f32)
         }
         UInt32 => {
             let ca = series.u32().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to u32: {}", e),
             })?;
-            Ok(ca.get(idx).ok_or_else(|| CatBoostError {
-                description: format!("Null value at index {}", idx),
-            })? as f32)
+            Ok(get_checked_value!(ca, idx) as f32)
         }
         UInt64 => {
             let ca = series.u64().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to u64: {}", e),
             })?;
-            Ok(ca.get(idx).ok_or_else(|| CatBoostError {
-                description: format!("Null value at index {}", idx),
-            })? as f32)
+            Ok(get_checked_value!(ca, idx) as f32)
         }
         Boolean => {
             let ca = series.bool().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to bool: {}", e),
             })?;
-            Ok(
-                if ca.get(idx).ok_or_else(|| CatBoostError {
-                    description: format!("Null value at index {}", idx),
-                })? {
-                    1.0
-                } else {
-                    0.0
-                },
-            )
+            let val = get_checked_value!(ca, idx);
+            Ok(if val { 1.0 } else { 0.0 })
         }
         dt => Err(CatBoostError {
             description: format!("Unsupported data type for float conversion: {}", dt),
@@ -317,12 +308,7 @@ fn extract_string_value(series: &Series, idx: usize) -> CatBoostResult<String> {
             let ca = series.str().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to String: {}", e),
             })?;
-            Ok(ca
-                .get(idx)
-                .ok_or_else(|| CatBoostError {
-                    description: format!("Null value at index {}", idx),
-                })?
-                .to_string())
+            Ok(get_checked_value!(ca, idx).to_string())
         }
         // Convert numeric types to strings for categorical features
         Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64 => {
@@ -333,9 +319,7 @@ fn extract_string_value(series: &Series, idx: usize) -> CatBoostResult<String> {
             let ca = series.bool().map_err(|e| CatBoostError {
                 description: format!("Failed to cast to bool: {}", e),
             })?;
-            let val = ca.get(idx).ok_or_else(|| CatBoostError {
-                description: format!("Null value at index {}", idx),
-            })?;
+            let val = get_checked_value!(ca, idx);
             Ok(if val {
                 "true".to_string()
             } else {
