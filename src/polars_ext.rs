@@ -82,12 +82,25 @@ impl ModelPolarsExt for Model {
         float_columns: &[&str],
         cat_columns: &[&str],
     ) -> CatBoostResult<Vec<f64>> {
+        // Ensure at least one feature type is provided
+        if float_columns.is_empty() && cat_columns.is_empty() {
+            return Err(CatBoostError {
+                description: "Must provide at least one float or categorical column".to_string(),
+            });
+        }
+
         // Extract float features
-        let float_col_names: Vec<String> = float_columns.iter().map(|s| s.to_string()).collect();
-        let float_df = df.select(float_col_names).map_err(|e| CatBoostError {
-            description: format!("Failed to select float columns: {}", e),
-        })?;
-        let float_features = dataframe_to_float_features(&float_df)?;
+        let float_features = if float_columns.is_empty() {
+            // No float features - create empty vectors for each row
+            vec![vec![]; df.height()]
+        } else {
+            let float_col_names: Vec<String> =
+                float_columns.iter().map(|s| s.to_string()).collect();
+            let float_df = df.select(float_col_names).map_err(|e| CatBoostError {
+                description: format!("Failed to select float columns: {}", e),
+            })?;
+            dataframe_to_float_features(&float_df)?
+        };
 
         // Extract categorical features
         let cat_features = if cat_columns.is_empty() {
@@ -307,9 +320,54 @@ fn extract_string_value(series: &Series, idx: usize) -> CatBoostResult<String> {
             Ok(get_checked_value!(ca, idx).to_string())
         }
         // Convert numeric types to strings for categorical features
-        Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64 => {
-            let value = extract_f32_value(series, idx)?;
-            Ok(format!("{}", value as i64))
+        // Handle each integer type directly to avoid precision loss
+        Int8 => {
+            let ca = series.i8().map_err(|e| CatBoostError {
+                description: format!("Failed to cast to i8: {}", e),
+            })?;
+            Ok(get_checked_value!(ca, idx).to_string())
+        }
+        Int16 => {
+            let ca = series.i16().map_err(|e| CatBoostError {
+                description: format!("Failed to cast to i16: {}", e),
+            })?;
+            Ok(get_checked_value!(ca, idx).to_string())
+        }
+        Int32 => {
+            let ca = series.i32().map_err(|e| CatBoostError {
+                description: format!("Failed to cast to i32: {}", e),
+            })?;
+            Ok(get_checked_value!(ca, idx).to_string())
+        }
+        Int64 => {
+            let ca = series.i64().map_err(|e| CatBoostError {
+                description: format!("Failed to cast to i64: {}", e),
+            })?;
+            Ok(get_checked_value!(ca, idx).to_string())
+        }
+        UInt8 => {
+            let ca = series.u8().map_err(|e| CatBoostError {
+                description: format!("Failed to cast to u8: {}", e),
+            })?;
+            Ok(get_checked_value!(ca, idx).to_string())
+        }
+        UInt16 => {
+            let ca = series.u16().map_err(|e| CatBoostError {
+                description: format!("Failed to cast to u16: {}", e),
+            })?;
+            Ok(get_checked_value!(ca, idx).to_string())
+        }
+        UInt32 => {
+            let ca = series.u32().map_err(|e| CatBoostError {
+                description: format!("Failed to cast to u32: {}", e),
+            })?;
+            Ok(get_checked_value!(ca, idx).to_string())
+        }
+        UInt64 => {
+            let ca = series.u64().map_err(|e| CatBoostError {
+                description: format!("Failed to cast to u64: {}", e),
+            })?;
+            Ok(get_checked_value!(ca, idx).to_string())
         }
         Boolean => {
             let ca = series.bool().map_err(|e| CatBoostError {
