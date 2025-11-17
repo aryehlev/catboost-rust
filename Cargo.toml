@@ -10,6 +10,9 @@ categories = ["science"]
 readme = "README.md"
 rust-version = "1.85"
 
+[dependencies]
+polars = { version = "0.45", optional = true, default-features = false, features = ["dtype-full"] }
+
 [build-dependencies]
 bindgen = "0.72.0"
 ureq = "2.0"
@@ -19,6 +22,7 @@ zip = "0.6"
 
 [features]
 gpu = []
+polars = ["dep:polars"]
 
 [[example]]
 name = "basic_usage"
