@@ -275,6 +275,134 @@ impl Model {
         })
     }
 
+    fn get_feature_indices_from_c(
+        indices_ptr: *mut usize,
+        count: usize,
+        err_msg: &str,
+    ) -> CatBoostResult<Vec<usize>> {
+        if indices_ptr.is_null() {
+            if count == 0 {
+                return Ok(Vec::new());
+            }
+            return Err(CatBoostError {
+                description: err_msg.to_owned(),
+            });
+        }
+        let mut indices = Vec::with_capacity(count);
+        for i in 0..count {
+            indices.push(unsafe { *indices_ptr.add(i) });
+        }
+        unsafe { libc::free(indices_ptr as *mut _) };
+        Ok(indices)
+    }
+
+    fn get_feature_names_from_c(
+        names_ptr: *mut *mut std::ffi::c_char,
+        count: usize,
+        err_msg: &str,
+    ) -> CatBoostResult<Vec<String>> {
+        if names_ptr.is_null() {
+            if count == 0 {
+                return Ok(Vec::new());
+            }
+            return Err(CatBoostError {
+                description: err_msg.to_owned(),
+            });
+        }
+        let mut names = Vec::with_capacity(count);
+        for i in 0..count {
+            let ptr = unsafe { *names_ptr.add(i) };
+            let s = unsafe { CStr::from_ptr(ptr) }
+                .to_string_lossy()
+                .into_owned();
+            names.push(s);
+            unsafe { libc::free(ptr as *mut _) };
+        }
+        unsafe { libc::free(names_ptr as *mut _) };
+        Ok(names)
+    }
+
+    fn get_specific_feature_names(
+        &self,
+        indices_fn: unsafe extern "C" fn(
+            *mut sys::ModelCalcerHandle,
+            *mut *mut usize,
+            *mut usize,
+        ) -> bool,
+        err_msg: &str,
+    ) -> CatBoostResult<Vec<String>> {
+        let all_names = self.get_feature_names()?;
+        let indices = self.get_feature_indices(indices_fn, err_msg)?;
+        Ok(indices.into_iter().map(|i| all_names[i].clone()).collect())
+    }
+    
+    /// Get names of features used in model
+    pub fn get_feature_names(&self) -> CatBoostResult<Vec<String>> {
+        unsafe {
+            let mut names_ptr: *mut *mut std::ffi::c_char = std::ptr::null_mut();
+            let mut count: usize = 0;
+
+            let ok =
+                sys::GetModelUsedFeaturesNames(self.handle, &mut names_ptr, &mut count);
+            CatBoostError::check_return_value(ok)?;
+
+            Self::get_feature_names_from_c(
+                names_ptr,
+                count,
+                "GetModelUsedFeaturesNames returned null pointer",
+            )
+        }
+    }
+
+    fn get_feature_indices(
+        &self,
+        indices_fn: unsafe extern "C" fn(
+            *mut sys::ModelCalcerHandle,
+            *mut *mut usize,
+            *mut usize,
+        ) -> bool,
+        err_msg: &str,
+    ) -> CatBoostResult<Vec<usize>> {
+        let mut indices_ptr: *mut usize = std::ptr::null_mut();
+        let mut count: usize = 0;
+        CatBoostError::check_return_value(unsafe {
+            indices_fn(self.handle, &mut indices_ptr, &mut count)
+        })?;
+        Self::get_feature_indices_from_c(indices_ptr, count, err_msg)
+    }
+
+    /// Get names of float features used in model
+    pub fn get_float_feature_names(&self) -> CatBoostResult<Vec<String>> {
+        self.get_specific_feature_names(
+            sys::GetFloatFeatureIndices,
+            "GetFloatFeatureIndices returned null pointer",
+        )
+    }
+
+    /// Get names of cat features used in model
+    pub fn get_cat_feature_names(&self) -> CatBoostResult<Vec<String>> {
+        self.get_specific_feature_names(
+            sys::GetCatFeatureIndices,
+            "GetCatFeatureIndices returned null pointer",
+        )
+    }
+
+    /// Get names of text features used in model
+    pub fn get_text_feature_names(&self) -> CatBoostResult<Vec<String>> {
+        self.get_specific_feature_names(
+            sys::GetTextFeatureIndices,
+            "GetTextFeatureIndices returned null pointer",
+        )
+    }
+
+    /// Get names of embedding features used in model
+    pub fn get_embedding_feature_names(&self) -> CatBoostResult<Vec<String>> {
+        self.get_specific_feature_names(
+            sys::GetEmbeddingFeatureIndices,
+            "GetEmbeddingFeatureIndices returned null pointer",
+        )
+    }
+
     /// Get expected float feature count for model
     pub fn get_float_features_count(&self) -> usize {
         unsafe { sys::GetFloatFeaturesCount(self.handle) }
