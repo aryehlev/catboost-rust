@@ -335,15 +335,14 @@ impl Model {
         let indices = self.get_feature_indices(indices_fn, err_msg)?;
         Ok(indices.into_iter().map(|i| all_names[i].clone()).collect())
     }
-    
+
     /// Get names of features used in model
     pub fn get_feature_names(&self) -> CatBoostResult<Vec<String>> {
         unsafe {
             let mut names_ptr: *mut *mut std::ffi::c_char = std::ptr::null_mut();
             let mut count: usize = 0;
 
-            let ok =
-                sys::GetModelUsedFeaturesNames(self.handle, &mut names_ptr, &mut count);
+            let ok = sys::GetModelUsedFeaturesNames(self.handle, &mut names_ptr, &mut count);
             CatBoostError::check_return_value(ok)?;
 
             Self::get_feature_names_from_c(
