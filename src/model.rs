@@ -322,6 +322,8 @@ impl Model {
         Ok(names)
     }
 
+    /// Get names of specific type of features used in model, 
+    /// returns error if index out of bounds
     fn get_specific_feature_names(
         &self,
         indices_fn: unsafe extern "C" fn(
@@ -333,10 +335,21 @@ impl Model {
     ) -> CatBoostResult<Vec<String>> {
         let all_names = self.get_feature_names()?;
         let indices = self.get_feature_indices(indices_fn, err_msg)?;
-        Ok(indices.into_iter().map(|i| all_names[i].clone()).collect())
+        indices
+            .into_iter()
+            .map(|i| {
+                all_names
+                    .get(i)
+                    .ok_or_else(|| CatBoostError {
+                        description: format!("feature index {} out of bounds", i),
+                    })
+                    .map(|s| s.clone())
+            })
+            .collect()
     }
 
     /// Get names of features used in model
+    #[cfg(catboost_feature_indices)]
     pub fn get_feature_names(&self) -> CatBoostResult<Vec<String>> {
         unsafe {
             let mut names_ptr: *mut *mut std::ffi::c_char = std::ptr::null_mut();
@@ -371,6 +384,7 @@ impl Model {
     }
 
     /// Get names of float features used in model
+    #[cfg(catboost_feature_indices)]
     pub fn get_float_feature_names(&self) -> CatBoostResult<Vec<String>> {
         self.get_specific_feature_names(
             sys::GetFloatFeatureIndices,
@@ -379,6 +393,7 @@ impl Model {
     }
 
     /// Get names of cat features used in model
+    #[cfg(catboost_feature_indices)]
     pub fn get_cat_feature_names(&self) -> CatBoostResult<Vec<String>> {
         self.get_specific_feature_names(
             sys::GetCatFeatureIndices,
@@ -387,6 +402,7 @@ impl Model {
     }
 
     /// Get names of text features used in model
+    #[cfg(catboost_feature_indices)]
     pub fn get_text_feature_names(&self) -> CatBoostResult<Vec<String>> {
         self.get_specific_feature_names(
             sys::GetTextFeatureIndices,
@@ -395,6 +411,7 @@ impl Model {
     }
 
     /// Get names of embedding features used in model
+    #[cfg(catboost_feature_indices)]
     pub fn get_embedding_feature_names(&self) -> CatBoostResult<Vec<String>> {
         self.get_specific_feature_names(
             sys::GetEmbeddingFeatureIndices,
