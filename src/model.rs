@@ -275,6 +275,34 @@ impl Model {
         })
     }
 
+    /// # Safety
+    ///
+    /// This function is unsafe because it dereferences a raw pointer and assumes a memory
+    /// allocation contract with an external C API.
+    ///
+    /// - `ptr` must be a valid pointer to a C-allocated buffer containing `count` elements of type `T`,
+    ///   or it must be a null pointer if `count` is 0.
+    /// - The buffer must have been allocated by a `malloc`-compatible allocator, as the CatBoost C API
+    ///   documentation for functions like `GetFloatFeatureIndices` and `GetModelUsedFeaturesNames`
+    ///   stipulates that the caller is responsible for freeing the returned buffer. The standard C
+    ///   mechanism for this is `free()`.
+    ///   (Source: https://github.com/catboost/catboost/blob/master/catboost/libs/model_interface/c_api.h)
+    ///
+    /// This function takes ownership of the buffer and frees it with `libc::free` after copying
+    /// the data into a Rust `Vec`.
+    unsafe fn from_c_allocated_buffer<T: Copy>(ptr: *mut T, count: usize) -> Vec<T> {
+        if ptr.is_null() {
+            return Vec::new();
+        }
+        let mut result = Vec::with_capacity(count);
+        for i in 0..count {
+            result.push(unsafe { *ptr.add(i) });
+        }
+        unsafe { libc::free(ptr as *mut _) };
+        result
+    }
+
+    /// Converts a C-style array of feature indices into a `Vec<usize>`, freeing the C buffer.
     fn get_feature_indices_from_c(
         indices_ptr: *mut usize,
         count: usize,
@@ -288,14 +316,14 @@ impl Model {
                 description: err_msg.to_owned(),
             });
         }
-        let mut indices = Vec::with_capacity(count);
-        for i in 0..count {
-            indices.push(unsafe { *indices_ptr.add(i) });
-        }
-        unsafe { libc::free(indices_ptr as *mut _) };
+        // SAFETY: The contract for CatBoost functions like `GetFloatFeatureIndices` is that they
+        // return a `malloc`-allocated buffer that the caller must free. `from_c_allocated_buffer`
+        // upholds this contract by copying the data and then calling `libc::free`.
+        let indices = unsafe { Self::from_c_allocated_buffer(indices_ptr, count) };
         Ok(indices)
     }
 
+    /// Converts a C-style array of C strings into a `Vec<String>`, freeing all associated C memory.
     fn get_feature_names_from_c(
         names_ptr: *mut *mut std::ffi::c_char,
         count: usize,
@@ -309,6 +337,9 @@ impl Model {
                 description: err_msg.to_owned(),
             });
         }
+        // SAFETY: The contract for `GetModelUsedFeaturesNames` is that it returns a `malloc`-allocated
+        // array of `malloc`-allocated strings. The caller must free both the outer array and each
+        // inner string pointer. This block upholds that contract.
         let mut names = Vec::with_capacity(count);
         for i in 0..count {
             let ptr = unsafe { *names_ptr.add(i) };
@@ -322,7 +353,7 @@ impl Model {
         Ok(names)
     }
 
-    /// Get names of specific type of features used in model, 
+    /// Get names of specific type of features used in model,
     /// returns error if index out of bounds
     fn get_specific_feature_names(
         &self,

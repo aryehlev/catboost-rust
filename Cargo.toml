@@ -11,7 +11,7 @@ readme = "README.md"
 rust-version = "1.85"
 
 [dependencies]
-libc = "0.2.177"
+libc = "0.2.178"
 
 [build-dependencies]
 bindgen = "0.72.0"
