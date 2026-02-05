@@ -48,6 +48,29 @@ impl Model {
         Ok(model)
     }
 
+    /// Reload a model from a file into an existing Model instance.
+    /// This replaces the current model without creating a new handle.
+    pub fn reload<P: AsRef<Path>>(&mut self, path: P) -> CatBoostResult<()> {
+        let path_c_str = CString::new(path.as_ref().to_str().unwrap()).unwrap();
+        CatBoostError::check_return_value(unsafe {
+            sys::LoadFullModelFromFile(self.handle, path_c_str.as_ptr())
+        })?;
+        Ok(())
+    }
+
+    /// Reload a model from a buffer into an existing Model instance.
+    /// This replaces the current model without creating a new handle.
+    pub fn reload_buffer<P: AsRef<Vec<u8>>>(&mut self, buffer: P) -> CatBoostResult<()> {
+        CatBoostError::check_return_value(unsafe {
+            sys::LoadFullModelFromBuffer(
+                self.handle,
+                buffer.as_ref().as_ptr() as *const std::os::raw::c_void,
+                buffer.as_ref().len(),
+            )
+        })?;
+        Ok(())
+    }
+
     fn set_or_check_object_count<
         TFeature,
         TObjectFeatures: AsRef<[TFeature]>,
