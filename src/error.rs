@@ -23,9 +23,8 @@ impl CatBoostError {
     /// Fetch current error message from CatBoost.
     fn fetch_catboost_error() -> Self {
         let c_str = unsafe { CStr::from_ptr(sys::GetErrorString()) };
-        let str_slice = c_str.to_str().unwrap();
         CatBoostError {
-            description: str_slice.to_owned(),
+            description: c_str.to_string_lossy().into_owned(),
         }
     }
 }
