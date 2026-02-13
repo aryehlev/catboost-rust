@@ -12,3 +12,8 @@ pub use crate::features::{
 
 mod model;
 pub use crate::model::Model;
+
+#[cfg(feature = "polars")]
+mod polars_ext;
+#[cfg(feature = "polars")]
+pub use crate::polars_ext::ModelPolarsExt;

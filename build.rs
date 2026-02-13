@@ -9,22 +9,10 @@ fn get_catboost_version() -> String {
     env::var("CATBOOST_VERSION").unwrap_or_else(|_| "1.2.8".to_string())
 }
 
-fn get_platform_info() -> (String, String) {
+fn get_arch_from_target() -> &'static str {
     let target = env::var("TARGET").unwrap();
 
-    // Determine OS
-    let os = if target.contains("apple-darwin") {
-        "darwin"
-    } else if target.contains("linux") {
-        "linux"
-    } else if target.contains("windows") {
-        "windows"
-    } else {
-        panic!("Unsupported target: {}", target);
-    };
-
-    // Determine architecture
-    let arch = if target.contains("x86_64") {
+    if target.contains("x86_64") {
         "x86_64"
     } else if target.contains("aarch64") || target.contains("arm64") {
         "aarch64"
@@ -32,9 +20,41 @@ fn get_platform_info() -> (String, String) {
         "i686"
     } else {
         panic!("Unsupported architecture for target: {}", target);
-    };
+    }
+}
 
-    (os.to_string(), arch.to_string())
+fn get_os_name() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "darwin"
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        "linux"
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        "windows"
+    }
+}
+
+fn get_lib_filename() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "catboostmodel.dll"
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        "libcatboostmodel.dylib"
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        "libcatboostmodel.so"
+    }
 }
 
 fn download_model_interface_headers(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -66,7 +86,8 @@ fn download_model_interface_headers(out_dir: &Path) -> Result<(), Box<dyn std::e
 }
 
 fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let (os, arch) = get_platform_info();
+    let os = get_os_name();
+    let arch = get_arch_from_target();
     let version = get_catboost_version();
 
     // Create the library directory early
@@ -91,7 +112,7 @@ fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::E
     // Determine download URL based on version and platform
     let (lib_filename, download_url) = if use_new_format {
         // v1.2+ format with platform and version in filename
-        match (os.as_str(), arch.as_str()) {
+        match (os, arch) {
             ("linux", "x86_64") => (
                 "libcatboostmodel.so".to_string(),
                 format!(
@@ -165,7 +186,7 @@ fn download_compiled_library(out_dir: &Path) -> Result<(), Box<dyn std::error::E
         }
     } else {
         // v1.0.x - v1.1.x format with simple filenames
-        match os.as_str() {
+        match os {
             "linux" => (
                 "libcatboostmodel.so".to_string(),
                 format!(
@@ -317,15 +338,8 @@ fn main() {
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Couldn't write bindings.");
 
-    // 1. Get platform info using your existing function
-    let (os, _arch) = get_platform_info();
-
-    // 2. Determine the library filename based on the OS
-    let lib_filename = match os.as_str() {
-        "windows" => "catboostmodel.dll",
-        "darwin" => "libcatboostmodel.dylib", // "darwin" comes from your function
-        _ => "libcatboostmodel.so",           // Default to Linux/Unix
-    };
+    // 1. Get the library filename based on the OS (using compile-time cfg)
+    let lib_filename = get_lib_filename();
 
     // 3. Copy the library from OUT_DIR/libs to the final target directory
     let lib_source_path = out_dir.join("libs").join(lib_filename);
@@ -342,7 +356,8 @@ fn main() {
 
     // On macOS/Linux, change the install name/soname to use @loader_path/$ORIGIN
     // This needs to be done on the source library in OUT_DIR before linking
-    if os == "darwin" {
+    #[cfg(target_os = "macos")]
+    {
         use std::process::Command;
         let _ = Command::new("install_name_tool")
             .arg("-id")
@@ -355,7 +370,10 @@ fn main() {
             .arg(format!("@loader_path/{}", lib_filename))
             .arg(&lib_dest_path)
             .status();
-    } else if os == "linux" {
+    }
+
+    #[cfg(target_os = "linux")]
+    {
         use std::process::Command;
         // Use patchelf to set soname to just the library filename on Linux (if available)
         // This is optional - if patchelf is not installed, we just skip it
@@ -379,51 +397,53 @@ fn main() {
     );
 
     // 5. Set the rpath for the run-time linker based on the OS
-    match os.as_str() {
-        "darwin" => {
-            // For macOS, add multiple rpath entries for IDE compatibility
-            println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
-            println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../..");
-            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
-            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path/../..");
+    #[cfg(target_os = "macos")]
+    {
+        // For macOS, add multiple rpath entries for IDE compatibility
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../..");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path/../..");
+        println!(
+            "cargo:rustc-link-arg=-Wl,-rpath,{}",
+            lib_search_path.display()
+        );
+        // Add the target directory to rpath as well
+        if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
             println!(
-                "cargo:rustc-link-arg=-Wl,-rpath,{}",
-                lib_search_path.display()
+                "cargo:rustc-link-arg=-Wl,-rpath,{}/debug",
+                target_root.display()
             );
-            // Add the target directory to rpath as well
-            if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
-                println!(
-                    "cargo:rustc-link-arg=-Wl,-rpath,{}/debug",
-                    target_root.display()
-                );
-                println!(
-                    "cargo:rustc-link-arg=-Wl,-rpath,{}/release",
-                    target_root.display()
-                );
-            }
-        }
-        "linux" => {
-            // For Linux, use $ORIGIN
-            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
-            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../..");
             println!(
-                "cargo:rustc-link-arg=-Wl,-rpath,{}",
-                lib_search_path.display()
+                "cargo:rustc-link-arg=-Wl,-rpath,{}/release",
+                target_root.display()
             );
-            // Add the target directory to rpath as well
-            if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
-                println!(
-                    "cargo:rustc-link-arg=-Wl,-rpath,{}/debug",
-                    target_root.display()
-                );
-                println!(
-                    "cargo:rustc-link-arg=-Wl,-rpath,{}/release",
-                    target_root.display()
-                );
-            }
         }
-        _ => {} // No rpath needed for Windows
     }
+
+    #[cfg(target_os = "linux")]
+    {
+        // For Linux, use $ORIGIN
+        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../..");
+        println!(
+            "cargo:rustc-link-arg=-Wl,-rpath,{}",
+            lib_search_path.display()
+        );
+        // Add the target directory to rpath as well
+        if let Some(target_root) = out_dir.ancestors().find(|p| p.ends_with("target")) {
+            println!(
+                "cargo:rustc-link-arg=-Wl,-rpath,{}/debug",
+                target_root.display()
+            );
+            println!(
+                "cargo:rustc-link-arg=-Wl,-rpath,{}/release",
+                target_root.display()
+            );
+        }
+    }
+
+    // No rpath needed for Windows
 
     println!("cargo:rustc-link-lib=dylib=catboostmodel");
 }
