@@ -121,6 +121,20 @@ let features = ObjectsOrderFeatures::new()
 let predictions = model.predict(features)?;
 ```
 
+### Zero-Copy Buffer Loading (Recommended)
+
+`Model::load_buffer_zero_copy` is the recommended way to load models from memory. Unlike `load_buffer`, it avoids copying the model data, resulting in lower memory usage, faster loading, and no internal memory pool leaks. Requires CatBoost v1.2.9+ (the default).
+
+```rust
+use catboost_rust::Model;
+use std::fs;
+
+let buffer = fs::read("model.cbm")?;
+let model = Model::load_buffer_zero_copy(buffer)?;
+```
+
+The buffer is owned by the `Model` and freed automatically when it is dropped.
+
 ## Configuration
 
 ### CatBoost Version
