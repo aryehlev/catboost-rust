@@ -1,0 +1,27 @@
+name: Docker CI
+
+on:
+  push:
+    branches: [ main, master, publish ]
+  pull_request:
+    branches: [ main, master, publish ]
+
+jobs:
+  docker:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker build -t catboost-rust:latest .
+
+      - name: Test Docker image
+        run: |
+          docker run --rm catboost-rust:latest cargo --version
+          docker run --rm catboost-rust:latest cargo test

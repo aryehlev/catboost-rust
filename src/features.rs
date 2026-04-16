@@ -53,8 +53,13 @@ pub struct ObjectsOrderFeatures<
     pub embedding_features: TEmbeddingFeatures,
 }
 
-
-impl ObjectsOrderFeatures<EmptyFloatFeatures, EmptyCatFeatures, EmptyTextFeatures, EmptyEmbeddingFeatures>
+impl
+    ObjectsOrderFeatures<
+        EmptyFloatFeatures,
+        EmptyCatFeatures,
+        EmptyTextFeatures,
+        EmptyEmbeddingFeatures,
+    >
 {
     pub fn new() -> Self {
         ObjectsOrderFeatures {
@@ -66,12 +71,18 @@ impl ObjectsOrderFeatures<EmptyFloatFeatures, EmptyCatFeatures, EmptyTextFeature
     }
 }
 
-impl Default for ObjectsOrderFeatures<EmptyFloatFeatures, EmptyCatFeatures, EmptyTextFeatures, EmptyEmbeddingFeatures> {
+impl Default
+    for ObjectsOrderFeatures<
+        EmptyFloatFeatures,
+        EmptyCatFeatures,
+        EmptyTextFeatures,
+        EmptyEmbeddingFeatures,
+    >
+{
     fn default() -> Self {
         Self::new()
     }
 }
-
 
 /// `with_*_features` are convenience functions when you don't want to specify all types of features when you don't
 ///   need them.
@@ -82,49 +93,53 @@ impl<TFloatFeatures, TCatFeatures, TTextFeatures, TEmbeddingFeatures>
 {
     pub fn with_float_features<TNewFloatFeatures>(
         self,
-        new_float_features: TNewFloatFeatures
-    ) -> ObjectsOrderFeatures<TNewFloatFeatures, TCatFeatures, TTextFeatures, TEmbeddingFeatures> {
-        ObjectsOrderFeatures{
+        new_float_features: TNewFloatFeatures,
+    ) -> ObjectsOrderFeatures<TNewFloatFeatures, TCatFeatures, TTextFeatures, TEmbeddingFeatures>
+    {
+        ObjectsOrderFeatures {
             float_features: new_float_features,
             cat_features: self.cat_features,
             text_features: self.text_features,
-            embedding_features: self.embedding_features
+            embedding_features: self.embedding_features,
         }
     }
 
     pub fn with_cat_features<TNewCatFeatures>(
         self,
-        new_cat_features: TNewCatFeatures
-    ) -> ObjectsOrderFeatures<TFloatFeatures, TNewCatFeatures, TTextFeatures, TEmbeddingFeatures> {
-        ObjectsOrderFeatures{
+        new_cat_features: TNewCatFeatures,
+    ) -> ObjectsOrderFeatures<TFloatFeatures, TNewCatFeatures, TTextFeatures, TEmbeddingFeatures>
+    {
+        ObjectsOrderFeatures {
             float_features: self.float_features,
             cat_features: new_cat_features,
             text_features: self.text_features,
-            embedding_features: self.embedding_features
+            embedding_features: self.embedding_features,
         }
     }
 
     pub fn with_text_features<TNewTextFeatures>(
         self,
-        new_text_features: TNewTextFeatures
-    ) -> ObjectsOrderFeatures<TFloatFeatures, TCatFeatures, TNewTextFeatures, TEmbeddingFeatures> {
-        ObjectsOrderFeatures{
+        new_text_features: TNewTextFeatures,
+    ) -> ObjectsOrderFeatures<TFloatFeatures, TCatFeatures, TNewTextFeatures, TEmbeddingFeatures>
+    {
+        ObjectsOrderFeatures {
             float_features: self.float_features,
             cat_features: self.cat_features,
             text_features: new_text_features,
-            embedding_features: self.embedding_features
+            embedding_features: self.embedding_features,
         }
     }
 
     pub fn with_embedding_features<TNewEmbeddingFeatures>(
         self,
-        new_embedding_features: TNewEmbeddingFeatures
-    ) -> ObjectsOrderFeatures<TFloatFeatures, TCatFeatures, TTextFeatures, TNewEmbeddingFeatures> {
-        ObjectsOrderFeatures{
+        new_embedding_features: TNewEmbeddingFeatures,
+    ) -> ObjectsOrderFeatures<TFloatFeatures, TCatFeatures, TTextFeatures, TNewEmbeddingFeatures>
+    {
+        ObjectsOrderFeatures {
             float_features: self.float_features,
             cat_features: self.cat_features,
             text_features: self.text_features,
-            embedding_features: new_embedding_features
+            embedding_features: new_embedding_features,
         }
     }
 }

@@ -6,11 +6,8 @@ pub use crate::error::{CatBoostError, CatBoostResult};
 
 mod features;
 pub use crate::features::{
+    EmptyCatFeatures, EmptyEmbeddingFeatures, EmptyFloatFeatures, EmptyTextFeatures,
     ObjectsOrderFeatures,
-    EmptyFloatFeatures,
-    EmptyCatFeatures,
-    EmptyTextFeatures,
-    EmptyEmbeddingFeatures
 };
 
 mod model;

@@ -1,4 +1,4 @@
-use catboost_rust::{Model, CatBoostError};
+use catboost_rust::{CatBoostError, Model};
 use std::fs;
 
 fn main() -> Result<(), CatBoostError> {
@@ -8,7 +8,10 @@ fn main() -> Result<(), CatBoostError> {
     // Check if we have a model file to load
     let model_path = "tmp/model.bin";
     if !fs::metadata(model_path).is_ok() {
-        println!("No model file found at {}. Creating a simple example...", model_path);
+        println!(
+            "No model file found at {}. Creating a simple example...",
+            model_path
+        );
         create_simple_example()?;
         return Ok(());
     }
@@ -16,11 +19,17 @@ fn main() -> Result<(), CatBoostError> {
     // Load the model
     println!("Loading model from {}...", model_path);
     let model = Model::load(model_path)?;
-    
+
     println!("Model loaded successfully!");
     println!("Model info:");
-    println!("  - Number of float features: {}", model.get_float_features_count());
-    println!("  - Number of categorical features: {}", model.get_cat_features_count());
+    println!(
+        "  - Number of float features: {}",
+        model.get_float_features_count()
+    );
+    println!(
+        "  - Number of categorical features: {}",
+        model.get_cat_features_count()
+    );
     println!("  - Number of trees: {}", model.get_tree_count());
     println!("  - Number of dimensions: {}", model.get_dimensions_count());
 
@@ -34,7 +43,11 @@ fn main() -> Result<(), CatBoostError> {
     // Example 2: Prediction with categorical features
     println!("\nExample 2: Categorical features prediction");
     let numeric_features = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
-    let categorical_features = vec![vec![String::from("A"), String::from("B"), String::from("C")]];
+    let categorical_features = vec![vec![
+        String::from("A"),
+        String::from("B"),
+        String::from("C"),
+    ]];
     let prediction = model.calc_model_prediction(numeric_features, categorical_features)?;
     println!("  Numeric features: {:?}", vec![1.0, 2.0, 3.0, 4.0, 5.0]);
     println!("  Categorical features: {:?}", vec!["A", "B", "C"]);
@@ -47,10 +60,28 @@ fn main() -> Result<(), CatBoostError> {
         vec![2.0, 3.0, 4.0, 5.0, 6.0],
         vec![3.0, 4.0, 5.0, 6.0, 7.0],
     ];
-    
-    let predictions = model.calc_model_prediction(batch_features, vec![Vec::<String>::new(), Vec::<String>::new(), Vec::<String>::new()])?;
+
+    let predictions = model.calc_model_prediction(
+        batch_features,
+        vec![
+            Vec::<String>::new(),
+            Vec::<String>::new(),
+            Vec::<String>::new(),
+        ],
+    )?;
     for (i, pred) in predictions.iter().enumerate() {
-        println!("  Sample {}: {:?} -> {:.6}", i + 1, vec![1.0 + i as f32, 2.0 + i as f32, 3.0 + i as f32, 4.0 + i as f32, 5.0 + i as f32], pred);
+        println!(
+            "  Sample {}: {:?} -> {:.6}",
+            i + 1,
+            vec![
+                1.0 + i as f32,
+                2.0 + i as f32,
+                3.0 + i as f32,
+                4.0 + i as f32,
+                5.0 + i as f32
+            ],
+            pred
+        );
     }
 
     println!("\nAll examples completed successfully!");

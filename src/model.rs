@@ -1,17 +1,15 @@
 use crate::error::{CatBoostError, CatBoostResult};
-use crate::features::{
-    ObjectsOrderFeatures,
-    EmptyTextFeatures,
-    EmptyEmbeddingFeatures
-};
+use crate::features::{EmptyEmbeddingFeatures, EmptyTextFeatures, ObjectsOrderFeatures};
 use crate::sys;
-use std::ffi::{CStr,CString};
-use std::path::Path;
+use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-
+use std::path::Path;
 
 pub struct Model {
     handle: *mut sys::ModelCalcerHandle,
+    /// Buffer owner for zero-copy loading - keeps the buffer alive for model's lifetime
+    #[cfg(catboost_zero_copy)]
+    _buffer_owner: Option<Vec<u8>>,
 }
 
 unsafe impl Send for Model {}
@@ -22,6 +20,8 @@ impl Model {
         let model_handle = unsafe { sys::ModelCalcerCreate() };
         Model {
             handle: model_handle,
+            #[cfg(catboost_zero_copy)]
+            _buffer_owner: None,
         }
     }
 
@@ -32,6 +32,37 @@ impl Model {
         CatBoostError::check_return_value(unsafe {
             sys::LoadFullModelFromFile(model.handle, path_c_str.as_ptr())
         })?;
+        Ok(model)
+    }
+
+    /// Load a model from a buffer using zero-copy approach
+    ///
+    /// This method uses LoadFullModelZeroCopy which does NOT copy the model data.
+    /// Instead, the model keeps a reference to the buffer and reads from it directly.
+    ///
+    /// Requires CatBoost v1.2.9+.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use catboost_rust::Model;
+    /// use std::fs;
+    ///
+    /// let buffer = fs::read("model.cbm").unwrap();
+    /// let model = Model::load_buffer_zero_copy(buffer).unwrap();
+    /// ```
+    #[cfg(catboost_zero_copy)]
+    pub fn load_buffer_zero_copy(buffer: Vec<u8>) -> CatBoostResult<Self> {
+        let mut model = Model::new();
+
+        CatBoostError::check_return_value(unsafe {
+            sys::LoadFullModelZeroCopy(
+                model.handle,
+                buffer.as_ptr() as *const std::os::raw::c_void,
+                buffer.len(),
+            )
+        })?;
+
+        model._buffer_owner = Some(buffer);
         Ok(model)
     }
 
@@ -51,20 +82,20 @@ impl Model {
     fn set_or_check_object_count<
         TFeature,
         TObjectFeatures: AsRef<[TFeature]>,
-        TFeatures: AsRef<[TObjectFeatures]>
-    >
-    (
+        TFeatures: AsRef<[TObjectFeatures]>,
+    >(
         object_count: &mut Option<usize>,
-        features: &TFeatures
+        features: &TFeatures,
     ) -> CatBoostResult<()> {
         let features_array_size = features.as_ref().len();
         if features_array_size > 0 {
             match object_count {
                 Some(count) => {
                     if *count != features_array_size {
-                        return Err(
-                            CatBoostError{ description: "features arguments have different nonzero sizes".to_owned() }
-                        )
+                        return Err(CatBoostError {
+                            description: "features arguments have different nonzero sizes"
+                                .to_owned(),
+                        });
                     }
                 }
                 None => {
@@ -87,15 +118,15 @@ impl Model {
         TTextFeatures: AsRef<[TObjectTextFeatures]>,
         TEmbedding: AsRef<[f32]>,
         TObjectEmbeddingFeatures: AsRef<[TEmbedding]>,
-        TEmbeddingFeatures: AsRef<[TObjectEmbeddingFeatures]>
+        TEmbeddingFeatures: AsRef<[TObjectEmbeddingFeatures]>,
     >(
         &self,
         features: ObjectsOrderFeatures<
             TFloatFeatures,
             TCatFeatures,
             TTextFeatures,
-            TEmbeddingFeatures
-        >
+            TEmbeddingFeatures,
+        >,
     ) -> CatBoostResult<Vec<f64>> {
         let mut object_count = None;
         Self::set_or_check_object_count(&mut object_count, &features.float_features)?;
@@ -103,18 +134,20 @@ impl Model {
         Self::set_or_check_object_count(&mut object_count, &features.text_features)?;
         Self::set_or_check_object_count(&mut object_count, &features.embedding_features)?;
         if object_count.is_none() {
-            return Err(
-                CatBoostError{ description: "all features arguments are empty".to_owned() }
-            );
+            return Err(CatBoostError {
+                description: "all features arguments are empty".to_owned(),
+            });
         }
 
-        let mut float_features_ptr = features.float_features
+        let mut float_features_ptr = features
+            .float_features
             .as_ref()
             .iter()
             .map(|x| x.as_ref().as_ptr())
             .collect::<Vec<_>>();
 
-        let hashed_cat_features =  features.cat_features
+        let hashed_cat_features = features
+            .cat_features
             .as_ref()
             .iter()
             .map(|doc_cat_features| {
@@ -136,18 +169,17 @@ impl Model {
             .map(|x| x.as_ptr())
             .collect::<Vec<_>>();
 
-        let mut text_features_ptr_storage = features.text_features
+        let mut text_features_ptr_storage = features
+            .text_features
             .as_ref()
             .iter()
-            .map(
-                |object_text_features|
-                    object_text_features.as_ref()
-                        .iter()
-                        .map(|text|
-                            text.as_ref().as_ptr()
-                        )
-                        .collect::<Vec<_>>()
-            )
+            .map(|object_text_features| {
+                object_text_features
+                    .as_ref()
+                    .iter()
+                    .map(|text| text.as_ref().as_ptr())
+                    .collect::<Vec<_>>()
+            })
             .collect::<Vec<_>>();
 
         let mut text_features_ptr = text_features_ptr_storage
@@ -156,25 +188,26 @@ impl Model {
             .collect::<Vec<_>>();
 
         let mut embedding_dimensions = if !features.embedding_features.as_ref().is_empty() {
-            features.embedding_features.as_ref()[0].as_ref().iter()
+            features.embedding_features.as_ref()[0]
+                .as_ref()
+                .iter()
                 .map(|x| x.as_ref().len())
                 .collect::<Vec<_>>()
         } else {
             vec![]
         };
 
-        let mut embedding_features_ptr_storage = features.embedding_features
+        let mut embedding_features_ptr_storage = features
+            .embedding_features
             .as_ref()
             .iter()
-            .map(
-                |object_embeddings|
-                    object_embeddings.as_ref()
-                        .iter()
-                        .map(|embedding|
-                            embedding.as_ref().as_ptr()
-                        )
-                        .collect::<Vec<_>>()
-            )
+            .map(|object_embeddings| {
+                object_embeddings
+                    .as_ref()
+                    .iter()
+                    .map(|embedding| embedding.as_ref().as_ptr())
+                    .collect::<Vec<_>>()
+            })
             .collect::<Vec<_>>();
 
         let mut embedding_features_ptr = embedding_features_ptr_storage
@@ -192,11 +225,23 @@ impl Model {
                     self.handle,
                     object_count.unwrap(),
                     float_features_ptr.as_mut_ptr(),
-                    if features.float_features.as_ref().is_empty() { 0 } else { features.float_features.as_ref()[0].as_ref().len() },
+                    if features.float_features.as_ref().is_empty() {
+                        0
+                    } else {
+                        features.float_features.as_ref()[0].as_ref().len()
+                    },
                     hashed_cat_features_ptr.as_mut_ptr(),
-                    if features.cat_features.as_ref().is_empty() { 0 } else { features.cat_features.as_ref()[0].as_ref().len() },
+                    if features.cat_features.as_ref().is_empty() {
+                        0
+                    } else {
+                        features.cat_features.as_ref()[0].as_ref().len()
+                    },
                     text_features_ptr.as_mut_ptr(),
-                    if features.text_features.as_ref().is_empty() { 0 } else { features.text_features.as_ref()[0].as_ref().len() },
+                    if features.text_features.as_ref().is_empty() {
+                        0
+                    } else {
+                        features.text_features.as_ref()[0].as_ref().len()
+                    },
                     embedding_features_ptr.as_mut_ptr(),
                     embedding_dimensions.as_mut_ptr(),
                     embedding_dimensions.len(),
@@ -220,11 +265,23 @@ impl Model {
                     self.handle,
                     object_count.unwrap(),
                     float_features_ptr.as_mut_ptr(),
-                    if features.float_features.as_ref().is_empty() { 0 } else { features.float_features.as_ref()[0].as_ref().len() },
+                    if features.float_features.as_ref().is_empty() {
+                        0
+                    } else {
+                        features.float_features.as_ref()[0].as_ref().len()
+                    },
                     hashed_cat_features_ptr.as_mut_ptr(),
-                    if features.cat_features.as_ref().is_empty() { 0 } else { features.cat_features.as_ref()[0].as_ref().len() },
+                    if features.cat_features.as_ref().is_empty() {
+                        0
+                    } else {
+                        features.cat_features.as_ref()[0].as_ref().len()
+                    },
                     text_features_ptr.as_mut_ptr(),
-                    if features.text_features.as_ref().is_empty() { 0 } else { features.text_features.as_ref()[0].as_ref().len() },
+                    if features.text_features.as_ref().is_empty() {
+                        0
+                    } else {
+                        features.text_features.as_ref()[0].as_ref().len()
+                    },
                     prediction.as_mut_ptr(),
                     prediction.len(),
                 )
@@ -240,21 +297,18 @@ impl Model {
         TFloatFeatures: AsRef<[TFloatFeature]>,
         TString: AsRef<str>,
         TCatFeature: AsRef<[TString]>,
-        TCatFeatures: AsRef<[TCatFeature]>
-    >
-    (
+        TCatFeatures: AsRef<[TCatFeature]>,
+    >(
         &self,
         float_features: TFloatFeatures,
         cat_features: TCatFeatures,
     ) -> CatBoostResult<Vec<f64>> {
-        self.predict(
-            ObjectsOrderFeatures{
-                float_features,
-                cat_features,
-                text_features: EmptyTextFeatures{},
-                embedding_features: EmptyEmbeddingFeatures{}
-            }
-        )
+        self.predict(ObjectsOrderFeatures {
+            float_features,
+            cat_features,
+            text_features: EmptyTextFeatures {},
+            embedding_features: EmptyEmbeddingFeatures {},
+        })
     }
 
     /// Get expected float feature count for model
@@ -295,21 +349,57 @@ impl Model {
 
     /// Get number of trees in model
     pub fn get_tree_count(&self) -> usize {
-        unsafe { sys::GetTreeCount(self.handle)}
+        unsafe { sys::GetTreeCount(self.handle) }
     }
 
     /// Get number of dimensions in model
     pub fn get_dimensions_count(&self) -> usize {
-        unsafe { sys::GetDimensionsCount(self.handle)}
+        unsafe { sys::GetDimensionsCount(self.handle) }
     }
 
     pub fn enable_gpu_evaluation(&self) -> CatBoostResult<()> {
-        CatBoostError::check_return_value( unsafe { sys::EnableGPUEvaluation(self.handle, 0) } )
+        CatBoostError::check_return_value(unsafe { sys::EnableGPUEvaluation(self.handle, 0) })
     }
 }
 
 impl Drop for Model {
     fn drop(&mut self) {
         unsafe { sys::ModelCalcerDelete(self.handle) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(catboost_zero_copy)]
+    #[test]
+    fn test_load_buffer_zero_copy() {
+        let model_path = "tmp/model.cbm";
+        if !std::path::Path::new(model_path).exists() {
+            eprintln!("Skipping test: {} not found", model_path);
+            return;
+        }
+
+        let model_from_file = Model::load(model_path).unwrap();
+        let buffer = std::fs::read(model_path).unwrap();
+        let model_from_buffer = Model::load_buffer_zero_copy(buffer).unwrap();
+
+        assert_eq!(
+            model_from_file.get_float_features_count(),
+            model_from_buffer.get_float_features_count()
+        );
+        assert_eq!(
+            model_from_file.get_cat_features_count(),
+            model_from_buffer.get_cat_features_count()
+        );
+        assert_eq!(
+            model_from_file.get_tree_count(),
+            model_from_buffer.get_tree_count()
+        );
+        assert_eq!(
+            model_from_file.get_dimensions_count(),
+            model_from_buffer.get_dimensions_count()
+        );
     }
 }
