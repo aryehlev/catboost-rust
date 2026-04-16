@@ -260,6 +260,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(catboost_text_count)");
     println!("cargo::rustc-check-cfg=cfg(catboost_staged_prediction)");
     println!("cargo::rustc-check-cfg=cfg(catboost_feature_indices)");
+    println!("cargo::rustc-check-cfg=cfg(catboost_zero_copy)");
 
     // Parse version for feature detection
     let version = get_catboost_version();
@@ -292,6 +293,11 @@ fn main() {
     if major > 1 || (major == 1 && minor > 2) || (major == 1 && minor == 2 && patch >= 3) {
         println!("cargo:rustc-cfg=catboost_staged_prediction");
         println!("cargo:rustc-cfg=catboost_feature_indices");
+    }
+
+    // v1.2.9+: Zero-copy buffer loading
+    if major > 1 || (major == 1 && minor > 2) || (major == 1 && minor == 2 && patch >= 9) {
+        println!("cargo:rustc-cfg=catboost_zero_copy");
     }
 
     // Download the model interface headers

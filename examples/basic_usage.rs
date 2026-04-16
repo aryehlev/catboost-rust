@@ -13,12 +13,14 @@ fn main() -> Result<(), CatBoostError> {
             model_path
         );
         create_simple_example()?;
-        return Ok(());
+        return Err(CatBoostError {
+            description: "No model file found at {}. Creating a simple example..".to_string(),
+        });
     }
 
-    // Load the model
+    // Load the model (prefer zero-copy when available)
     println!("Loading model from {}...", model_path);
-    let model = Model::load(model_path)?;
+    let model = load_model(model_path)?;
 
     println!("Model loaded successfully!");
     println!("Model info:");
@@ -86,6 +88,21 @@ fn main() -> Result<(), CatBoostError> {
 
     println!("\nAll examples completed successfully!");
     Ok(())
+}
+
+#[cfg(catboost_zero_copy)]
+fn load_model(path: &str) -> Result<Model, CatBoostError> {
+    println!("  (using zero-copy buffer loading)");
+    let buffer = fs::read(path).map_err(|e| CatBoostError {
+        description: format!("could not read file into memory: {}", e),
+    })?;
+    Model::load_buffer_zero_copy(buffer)
+}
+
+#[cfg(not(catboost_zero_copy))]
+fn load_model(path: &str) -> Result<Model, CatBoostError> {
+    println!("  (using file loading - zero-copy not available in this CatBoost version)");
+    Model::load(path)
 }
 
 fn create_simple_example() -> Result<(), CatBoostError> {
