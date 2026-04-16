@@ -40,12 +40,12 @@ jobs:
 
           - os: linux
             arch: arm64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04-arm
             catboost_version: "1.2.7"
 
           - os: linux
             arch: arm64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04-arm
             catboost_version: "1.2.10"
 
           # Windows x86_64
