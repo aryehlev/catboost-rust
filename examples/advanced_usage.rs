@@ -17,7 +17,14 @@ fn main() -> Result<(), CatBoostError> {
 
     // Load the model
     println!("Loading model from {}...", model_path);
-    let model = Model::load(model_path)?;
+    let buffer_res = fs::read(model_path);
+    if buffer_res.is_err() {
+        return Err(CatBoostError {
+            description: "could not read file into memory".to_string(),
+        });
+    }
+
+    let model = Model::load_buffer_zero_copy(buffer_res.unwrap())?;
 
     println!("Model loaded successfully!");
 
