@@ -375,11 +375,12 @@ mod tests {
     #[cfg(catboost_zero_copy)]
     #[test]
     fn test_load_buffer_zero_copy() {
-        let model_path = "tmp/model.cbm";
-        if !std::path::Path::new(model_path).exists() {
-            eprintln!("Skipping test: {} not found", model_path);
-            return;
-        }
+        let model_path = "tmp/model.bin";
+        assert!(
+            std::path::Path::new(model_path).exists(),
+            "Test fixture missing: {}",
+            model_path
+        );
 
         let model_from_file = Model::load(model_path).unwrap();
         let buffer = std::fs::read(model_path).unwrap();
