@@ -382,19 +382,22 @@ impl Model {
             });
         }
 
-        
         let str_ptrs = unsafe { Self::from_c_allocated_buffer(names_ptr, count) };
         let guards: Vec<CFreeGuard<c_char>> = str_ptrs.into_iter().map(CFreeGuard).collect();
         guards
             .iter()
             .map(|g| {
                 if g.0.is_null() {
-                    return Err(CatBoostError { description: err_msg.to_owned() });
+                    return Err(CatBoostError {
+                        description: err_msg.to_owned(),
+                    });
                 }
                 unsafe { CStr::from_ptr(g.0) }
                     .to_str()
                     .map(|s| s.to_owned())
-                    .map_err(|_| CatBoostError { description: err_msg.to_owned() })
+                    .map_err(|_| CatBoostError {
+                        description: err_msg.to_owned(),
+                    })
             })
             .collect()
     }
@@ -421,7 +424,7 @@ impl Model {
                     .ok_or_else(|| CatBoostError {
                         description: format!("feature index {} out of bounds", i),
                     })
-                    .map(|s| s.clone())
+                    .cloned()
             })
             .collect()
     }
