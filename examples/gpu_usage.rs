@@ -1,12 +1,25 @@
 use catboost_rust::{Model, ObjectsOrderFeatures};
 
+#[cfg(catboost_zero_copy)]
+fn load_model(path: &str) -> Result<Model, Box<dyn std::error::Error>> {
+    println!("  (using zero-copy buffer loading)");
+    let buffer = std::fs::read(path)?;
+    Ok(Model::load_buffer_zero_copy(buffer)?)
+}
+
+#[cfg(not(catboost_zero_copy))]
+fn load_model(path: &str) -> Result<Model, Box<dyn std::error::Error>> {
+    println!("  (using file loading - zero-copy not available in this CatBoost version)");
+    Ok(Model::load(path)?)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("CatBoost Rust Example - GPU Usage");
     println!("==================================");
 
-    // Load a model
+    // Load a model (prefer zero-copy when available)
     println!("Loading model from tmp/model.bin...");
-    let model = Model::load("tmp/model.bin")?;
+    let model = load_model("tmp/model.bin")?;
     println!("Model loaded successfully!");
 
     // Display model information

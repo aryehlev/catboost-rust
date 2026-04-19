@@ -16,6 +16,9 @@ impl<T> Drop for CFreeGuard<T> {
 
 pub struct Model {
     handle: *mut sys::ModelCalcerHandle,
+    /// Buffer owner for zero-copy loading - keeps the buffer alive for model's lifetime
+    #[cfg(catboost_zero_copy)]
+    _buffer_owner: Option<Vec<u8>>,
 }
 
 unsafe impl Send for Model {}
@@ -26,6 +29,8 @@ impl Model {
         let model_handle = unsafe { sys::ModelCalcerCreate() };
         Model {
             handle: model_handle,
+            #[cfg(catboost_zero_copy)]
+            _buffer_owner: None,
         }
     }
 
@@ -36,6 +41,37 @@ impl Model {
         CatBoostError::check_return_value(unsafe {
             sys::LoadFullModelFromFile(model.handle, path_c_str.as_ptr())
         })?;
+        Ok(model)
+    }
+
+    /// Load a model from a buffer using zero-copy approach
+    ///
+    /// This method uses LoadFullModelZeroCopy which does NOT copy the model data.
+    /// Instead, the model keeps a reference to the buffer and reads from it directly.
+    ///
+    /// Requires CatBoost v1.2.9+.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use catboost_rust::Model;
+    /// use std::fs;
+    ///
+    /// let buffer = fs::read("model.cbm").unwrap();
+    /// let model = Model::load_buffer_zero_copy(buffer).unwrap();
+    /// ```
+    #[cfg(catboost_zero_copy)]
+    pub fn load_buffer_zero_copy(buffer: Vec<u8>) -> CatBoostResult<Self> {
+        let mut model = Model::new();
+
+        CatBoostError::check_return_value(unsafe {
+            sys::LoadFullModelZeroCopy(
+                model.handle,
+                buffer.as_ptr() as *const std::os::raw::c_void,
+                buffer.len(),
+            )
+        })?;
+
+        model._buffer_owner = Some(buffer);
         Ok(model)
     }
 

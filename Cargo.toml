@@ -1,6 +1,6 @@
 [package]
 name = "catboost-rust"
-version = "0.3.6"
+version = "0.3.8"
 edition = "2024"
 description = "Rust bindings for CatBoost, a gradient boosting library for machine learning. Downloads CatBoost binaries at runtime for cross-platform compatibility."
 license = "Apache-2.0"
@@ -16,9 +16,6 @@ libc = "0.2.178"
 [build-dependencies]
 bindgen = "0.72.0"
 ureq = "2.0"
-flate2 = "1.0"
-tar = "0.4"
-zip = "0.6"
 
 [features]
 gpu = []

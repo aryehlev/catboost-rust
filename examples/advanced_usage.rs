@@ -15,9 +15,9 @@ fn main() -> Result<(), CatBoostError> {
         return Ok(());
     }
 
-    // Load the model
+    // Load the model (prefer zero-copy when available)
     println!("Loading model from {}...", model_path);
-    let model = Model::load(model_path)?;
+    let model = load_model(model_path)?;
 
     println!("Model loaded successfully!");
 
@@ -115,6 +115,21 @@ fn main() -> Result<(), CatBoostError> {
 
     println!("\nAdvanced examples completed successfully!");
     Ok(())
+}
+
+#[cfg(catboost_zero_copy)]
+fn load_model(path: &str) -> Result<Model, CatBoostError> {
+    println!("  (using zero-copy buffer loading)");
+    let buffer = fs::read(path).map_err(|e| CatBoostError {
+        description: format!("could not read file into memory: {}", e),
+    })?;
+    Model::load_buffer_zero_copy(buffer)
+}
+
+#[cfg(not(catboost_zero_copy))]
+fn load_model(path: &str) -> Result<Model, CatBoostError> {
+    println!("  (using file loading - zero-copy not available in this CatBoost version)");
+    Model::load(path)
 }
 
 fn display_model_info(model: &Model) -> Result<(), CatBoostError> {
