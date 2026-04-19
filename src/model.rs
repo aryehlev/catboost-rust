@@ -5,6 +5,15 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::Path;
 
+/// RAII guard that frees a C-allocated pointer on drop.
+struct CFreeGuard<T>(*mut T);
+
+impl<T> Drop for CFreeGuard<T> {
+    fn drop(&mut self) {
+        unsafe { libc::free(self.0 as *mut libc::c_void) };
+    }
+}
+
 pub struct Model {
     handle: *mut sys::ModelCalcerHandle,
 }
@@ -294,12 +303,8 @@ impl Model {
         if ptr.is_null() {
             return Vec::new();
         }
-        let mut result = Vec::with_capacity(count);
-        for i in 0..count {
-            result.push(unsafe { *ptr.add(i) });
-        }
-        unsafe { libc::free(ptr as *mut _) };
-        result
+        let _guard = CFreeGuard(ptr);
+        unsafe { std::slice::from_raw_parts(ptr, count) }.to_vec()
     }
 
     /// Converts a C-style array of feature indices into a `Vec<usize>`, freeing the C buffer.
@@ -324,6 +329,9 @@ impl Model {
     }
 
     /// Converts a C-style array of C strings into a `Vec<String>`, freeing all associated C memory.
+    ///
+    /// Uses a drop guard to ensure all C memory is freed even if a panic occurs mid-iteration
+    /// (e.g. OOM during `into_owned()` or `Vec::push`).
     fn get_feature_names_from_c(
         names_ptr: *mut *mut std::ffi::c_char,
         count: usize,
@@ -337,20 +345,14 @@ impl Model {
                 description: err_msg.to_owned(),
             });
         }
-        // SAFETY: The contract for `GetModelUsedFeaturesNames` is that it returns a `malloc`-allocated
-        // array of `malloc`-allocated strings. The caller must free both the outer array and each
-        // inner string pointer. This block upholds that contract.
-        let mut names = Vec::with_capacity(count);
-        for i in 0..count {
-            let ptr = unsafe { *names_ptr.add(i) };
-            let s = unsafe { CStr::from_ptr(ptr) }
-                .to_string_lossy()
-                .into_owned();
-            names.push(s);
-            unsafe { libc::free(ptr as *mut _) };
-        }
-        unsafe { libc::free(names_ptr as *mut _) };
-        Ok(names)
+
+        
+        let str_ptrs = unsafe { Self::from_c_allocated_buffer(names_ptr, count) };
+        let guards: Vec<CFreeGuard<c_char>> = str_ptrs.into_iter().map(CFreeGuard).collect();
+        Ok(guards
+            .iter()
+            .map(|g| unsafe { CStr::from_ptr(g.0) }.to_string_lossy().into_owned())
+            .collect())
     }
 
     /// Get names of specific type of features used in model,
@@ -504,5 +506,184 @@ impl Model {
 impl Drop for Model {
     fn drop(&mut self) {
         unsafe { sys::ModelCalcerDelete(self.handle) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ptr;
+
+    unsafe fn make_c_buffer<T: Copy>(data: &[T]) -> *mut T {
+        unsafe {
+            let ptr = libc::malloc(std::mem::size_of::<T>() * data.len()) as *mut T;
+            assert!(!ptr.is_null(), "malloc failed");
+            for (i, val) in data.iter().enumerate() {
+                ptr.add(i).write(*val);
+            }
+            ptr
+        }
+    }
+
+    unsafe fn make_c_string_array(strings: &[&str]) -> *mut *mut c_char {
+        unsafe {
+            let outer = libc::malloc(std::mem::size_of::<*mut c_char>() * strings.len())
+                as *mut *mut c_char;
+            assert!(!outer.is_null());
+            for (i, s) in strings.iter().enumerate() {
+                let len = s.len();
+                let buf = libc::malloc(len + 1) as *mut c_char;
+                assert!(!buf.is_null());
+                std::ptr::copy_nonoverlapping(s.as_ptr() as *const c_char, buf, len);
+                *buf.add(len) = 0;
+                *outer.add(i) = buf;
+            }
+            outer
+        }
+    }
+
+    // from_c_allocated_buffer tests
+
+    #[test]
+    fn test_buffer_null_ptr() {
+        let result = unsafe { Model::from_c_allocated_buffer::<usize>(ptr::null_mut(), 0) };
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_buffer_null_ptr_nonzero_count() {
+        let result = unsafe { Model::from_c_allocated_buffer::<usize>(ptr::null_mut(), 5) };
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_buffer_single_element() {
+        let ptr = unsafe { make_c_buffer(&[42usize]) };
+        let result = unsafe { Model::from_c_allocated_buffer(ptr, 1) };
+        assert_eq!(result, vec![42usize]);
+    }
+
+    #[test]
+    fn test_buffer_multiple_elements() {
+        let data: Vec<usize> = (0..100).collect();
+        let ptr = unsafe { make_c_buffer(&data) };
+        let result = unsafe { Model::from_c_allocated_buffer(ptr, data.len()) };
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn test_buffer_f64() {
+        let data = [1.5f64, 2.7, 3.14, 0.0, -1.0];
+        let ptr = unsafe { make_c_buffer(&data) };
+        let result = unsafe { Model::from_c_allocated_buffer(ptr, data.len()) };
+        assert_eq!(result, data.to_vec());
+    }
+
+    #[test]
+    fn test_buffer_i32() {
+        let data = [-1i32, 0, 1, i32::MAX, i32::MIN];
+        let ptr = unsafe { make_c_buffer(&data) };
+        let result = unsafe { Model::from_c_allocated_buffer(ptr, data.len()) };
+        assert_eq!(result, data.to_vec());
+    }
+
+    #[test]
+    fn test_buffer_u8() {
+        let data: Vec<u8> = (0..=255).collect();
+        let ptr = unsafe { make_c_buffer(&data) };
+        let result = unsafe { Model::from_c_allocated_buffer(ptr, data.len()) };
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn test_buffer_zero_count() {
+        let ptr = unsafe { libc::malloc(8) as *mut usize };
+        assert!(!ptr.is_null());
+        let result = unsafe { Model::from_c_allocated_buffer(ptr, 0) };
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_buffer_large() {
+        let data: Vec<u64> = (0..10_000).collect();
+        let ptr = unsafe { make_c_buffer(&data) };
+        let result = unsafe { Model::from_c_allocated_buffer(ptr, data.len()) };
+        assert_eq!(result, data);
+    }
+
+    // get_feature_indices_from_c tests
+
+    #[test]
+    fn test_indices_null_zero_count() {
+        let result = Model::get_feature_indices_from_c(ptr::null_mut(), 0, "error");
+        assert_eq!(result.unwrap(), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn test_indices_null_nonzero_count() {
+        let result = Model::get_feature_indices_from_c(ptr::null_mut(), 3, "custom error");
+        assert_eq!(result.unwrap_err().description, "custom error");
+    }
+
+    #[test]
+    fn test_indices_valid() {
+        let data = [0usize, 2, 5, 10];
+        let ptr = unsafe { make_c_buffer(&data) };
+        let result = Model::get_feature_indices_from_c(ptr, data.len(), "error").unwrap();
+        assert_eq!(result, data.to_vec());
+    }
+
+    // get_feature_names_from_c tests
+
+    #[test]
+    fn test_names_null_zero_count() {
+        let result = Model::get_feature_names_from_c(ptr::null_mut(), 0, "error");
+        assert_eq!(result.unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_names_null_nonzero_count() {
+        let result = Model::get_feature_names_from_c(ptr::null_mut(), 3, "custom error");
+        assert_eq!(result.unwrap_err().description, "custom error");
+    }
+
+    #[test]
+    fn test_names_single() {
+        let ptr = unsafe { make_c_string_array(&["feature_0"]) };
+        let result = Model::get_feature_names_from_c(ptr, 1, "error").unwrap();
+        assert_eq!(result, vec!["feature_0"]);
+    }
+
+    #[test]
+    fn test_names_multiple() {
+        let names = ["alpha", "beta", "gamma", "delta"];
+        let ptr = unsafe { make_c_string_array(&names) };
+        let result = Model::get_feature_names_from_c(ptr, names.len(), "error").unwrap();
+        assert_eq!(result, names.map(String::from).to_vec());
+    }
+
+    #[test]
+    fn test_names_empty_strings() {
+        let names = ["", "", "nonempty", ""];
+        let ptr = unsafe { make_c_string_array(&names) };
+        let result = Model::get_feature_names_from_c(ptr, names.len(), "error").unwrap();
+        assert_eq!(result, names.map(String::from).to_vec());
+    }
+
+    #[test]
+    fn test_names_unicode() {
+        let names = ["café", "naïve", "日本語"];
+        let ptr = unsafe { make_c_string_array(&names) };
+        let result = Model::get_feature_names_from_c(ptr, names.len(), "error").unwrap();
+        assert_eq!(result, names.map(String::from).to_vec());
+    }
+
+    #[test]
+    fn test_names_many() {
+        let names: Vec<String> = (0..500).map(|i| format!("feature_{}", i)).collect();
+        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        let ptr = unsafe { make_c_string_array(&name_refs) };
+        let result = Model::get_feature_names_from_c(ptr, names.len(), "error").unwrap();
+        assert_eq!(result, names);
     }
 }

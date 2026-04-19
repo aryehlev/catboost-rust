@@ -106,7 +106,10 @@ fn main() -> Result<(), CatBoostError> {
         Err(e) => println!("  Batch prediction error: {}", e),
     }
 
-    // Example 4: Model validation
+    // Example 4: Feature names and indices
+    display_feature_names(&model);
+
+    // Example 5: Model validation
     println!("\n=== Model Validation ===");
     validate_model(&model)?;
 
@@ -136,6 +139,37 @@ fn display_model_info(model: &Model) -> Result<(), CatBoostError> {
     println!("  - Number of dimensions: {}", model.get_dimensions_count());
 
     Ok(())
+}
+
+#[cfg(catboost_feature_indices)]
+fn display_feature_names(model: &Model) {
+    println!("\n=== Feature Names ===");
+    match model.get_feature_names() {
+        Ok(names) => println!("  All feature names: {:?}", names),
+        Err(e) => println!("  get_feature_names error: {}", e),
+    }
+    match model.get_float_feature_names() {
+        Ok(names) => println!("  Float feature names: {:?}", names),
+        Err(e) => println!("  get_float_feature_names error: {}", e),
+    }
+    match model.get_cat_feature_names() {
+        Ok(names) => println!("  Cat feature names: {:?}", names),
+        Err(e) => println!("  get_cat_feature_names error: {}", e),
+    }
+    match model.get_text_feature_names() {
+        Ok(names) => println!("  Text feature names: {:?}", names),
+        Err(e) => println!("  get_text_feature_names error: {}", e),
+    }
+    match model.get_embedding_feature_names() {
+        Ok(names) => println!("  Embedding feature names: {:?}", names),
+        Err(e) => println!("  get_embedding_feature_names error: {}", e),
+    }
+}
+
+#[cfg(not(catboost_feature_indices))]
+fn display_feature_names(_model: &Model) {
+    println!("\n=== Feature Names ===");
+    println!("  Feature name queries not available in this CatBoost version.");
 }
 
 fn validate_model(model: &Model) -> Result<(), CatBoostError> {
