@@ -385,14 +385,23 @@ impl Model {
         
         let str_ptrs = unsafe { Self::from_c_allocated_buffer(names_ptr, count) };
         let guards: Vec<CFreeGuard<c_char>> = str_ptrs.into_iter().map(CFreeGuard).collect();
-        Ok(guards
+        guards
             .iter()
-            .map(|g| unsafe { CStr::from_ptr(g.0) }.to_string_lossy().into_owned())
-            .collect())
+            .map(|g| {
+                if g.0.is_null() {
+                    return Err(CatBoostError { description: err_msg.to_owned() });
+                }
+                unsafe { CStr::from_ptr(g.0) }
+                    .to_str()
+                    .map(|s| s.to_owned())
+                    .map_err(|_| CatBoostError { description: err_msg.to_owned() })
+            })
+            .collect()
     }
 
     /// Get names of specific type of features used in model,
     /// returns error if index out of bounds
+    #[cfg(catboost_feature_indices)]
     fn get_specific_feature_names(
         &self,
         indices_fn: unsafe extern "C" fn(
@@ -435,6 +444,7 @@ impl Model {
         }
     }
 
+    #[cfg(catboost_feature_indices)]
     fn get_feature_indices(
         &self,
         indices_fn: unsafe extern "C" fn(
