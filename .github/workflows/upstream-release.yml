@@ -1,0 +1,165 @@
+name: CatBoost upstream release watcher
+
+# Weekly (and on-demand) watch on catboost/catboost. When a release newer than the
+# version pinned in build.rs appears, Claude reviews the upstream C API header diff and
+# edits the crate; a dedicated action then opens ONE pull request. Nothing here can push
+# to the base branch or publish a release — the only remote write is the PR itself.
+#
+# Requires repo secret: ANTHROPIC_API_KEY
+# Recommended: a branch-protection rule on the default branch requiring PRs.
+
+on:
+  schedule:
+    - cron: '20 6 * * 1'   # Mondays 06:20 UTC (staggered)
+  workflow_dispatch:
+
+permissions:
+  contents: write         # minimum GitHub allows for creating a PR branch
+  pull-requests: write    # open/update the PR
+
+jobs:
+  propose-update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false   # the edit step gets NO git push credentials
+
+      - name: Determine current and latest versions
+        id: versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep 'unwrap_or_else' build.rs | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          [ -n "$CURRENT" ] || { echo "::error::Could not find pinned version in build.rs"; exit 1; }
+          LATEST=$(gh api "repos/catboost/catboost/releases/latest" --jq '.tag_name' | sed 's/^v//')
+          [ -n "$LATEST" ] || { echo "::error::Could not fetch latest release"; exit 1; }
+
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST"   >> "$GITHUB_OUTPUT"
+          echo "Current pinned: $CURRENT | Latest upstream: $LATEST"
+
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "update=false" >> "$GITHUB_OUTPUT"
+          elif [ "$(printf '%s\n%s\n' "$CURRENT" "$LATEST" | sort -V | tail -1)" = "$LATEST" ]; then
+            echo "update=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Pinned version is newer than upstream latest; nothing to do."
+            echo "update=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if an update PR is already open
+        id: existing
+        if: steps.versions.outputs.update == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH="chore/catboost-${{ steps.versions.outputs.latest }}"
+          if gh pr list --state open --head "$BRANCH" --json number --jq '.[0].number' | grep -q '[0-9]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build upstream C API header diff
+        id: diff
+        if: steps.versions.outputs.update == 'true' && steps.existing.outputs.skip == 'false'
+        env:
+          CURRENT: ${{ steps.versions.outputs.current }}
+          LATEST: ${{ steps.versions.outputs.latest }}
+        run: |
+          set -uo pipefail
+          OUT="$RUNNER_TEMP/header-diff.txt"
+          : > "$OUT"
+          for h in catboost/libs/model_interface/c_api.h; do
+            old=$(curl -fsSL "https://raw.githubusercontent.com/catboost/catboost/v${CURRENT}/${h}" 2>/dev/null || true)
+            new=$(curl -fsSL "https://raw.githubusercontent.com/catboost/catboost/v${LATEST}/${h}" 2>/dev/null || true)
+            [ -z "$old" ] && [ -z "$new" ] && continue
+            echo "===== ${h}  (v${CURRENT} -> v${LATEST}) =====" >> "$OUT"
+            diff -u <(printf '%s' "$old") <(printf '%s' "$new") >> "$OUT" || true
+            echo >> "$OUT"
+          done
+          printf '## CatBoost v%s\n\nBump from v%s. Release notes: https://github.com/catboost/catboost/releases/tag/v%s\n' \
+            "$LATEST" "$CURRENT" "$LATEST" > "$RUNNER_TEMP/pr-body.md"
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          echo "Wrote header diff to $OUT ($(wc -l < "$OUT") lines)"
+
+      - name: Claude — review diff and edit the crate (no push access)
+        if: steps.versions.outputs.update == 'true' && steps.existing.outputs.skip == 'false'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --allowedTools Bash,Edit,Write,Read,Glob,Grep
+            --max-turns 40
+            --model claude-opus-4-8
+          prompt: |
+            You are preparing a dependency update for the Rust crate `catboost-rust`,
+            which wraps the CatBoost model-interface C API. You can ONLY edit files. Do NOT
+            run git, do NOT commit, push, or open a PR — a later workflow step does that
+            from your changes. There are no push credentials available to you.
+
+            Upstream catboost/catboost has a newer release:
+              current pinned version: v${{ steps.versions.outputs.current }}
+              new version:            v${{ steps.versions.outputs.latest }}
+
+            Do the following:
+
+            1. In build.rs, bump the default version returned by `get_catboost_version()`
+               from ${{ steps.versions.outputs.current }} to ${{ steps.versions.outputs.latest }}.
+               Update stale references to the old version in README.md where clearly appropriate.
+
+            2. Read the upstream C API header diff: `cat "${{ steps.diff.outputs.path }}"`.
+               Analyze it for changes affecting this crate: changed/removed function
+               signatures the safe wrappers call, valuable new functions, changed
+               structs/enums/constants.
+
+               IMPORTANT: the raw FFI in src/sys.rs is generated by bindgen at build time
+               (`include!(concat!(env!("OUT_DIR"), "/bindings.rs"))`) — do NOT hand-write or
+               edit FFI declarations. Only modify the SAFE WRAPPER layer (src/model.rs,
+               src/lib.rs, src/error.rs, src/features.rs, src/polars_ext.rs) where the diff
+               actually requires it. Be conservative and minimal.
+
+            3. CatBoost has changed its release-asset file naming between releases (e.g.
+               `libcatboostmodel-linux-x86_64-<ver>.so` vs the older `libcatboostmodel.so`).
+               The `download_compiled_library` logic in build.rs branches on this. Note in
+               your review that a maintainer should confirm the asset names for
+               v${{ steps.versions.outputs.latest }} still match that logic — and if the diff
+               or your knowledge shows the naming changed, update build.rs accordingly.
+
+            4. If feasible run `cargo build` (then `cargo test`). The build downloads
+               platform libraries and may fail for environment reasons — if so, note it and
+               continue.
+
+            5. Write the pull-request body to the file "${{ runner.temp }}/pr-body.md"
+               (overwrite it). It must contain:
+                 - the bump (v${{ steps.versions.outputs.current }} -> v${{ steps.versions.outputs.latest }})
+                   and the release-notes link.
+                 - a "## Code review" section: an honest review of the C API diff and the
+                   release-asset naming — what changed, what it means for this crate, and
+                   exactly what you changed and why (or that no changes were required).
+                 - a "## Needs human verification" checklist (release assets present for every
+                   platform, build/test on real targets, etc.).
+
+      - name: Ensure PR labels exist
+        if: steps.versions.outputs.update == 'true' && steps.existing.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create dependencies --force >/dev/null 2>&1 || true
+          gh label create upstream-release --force >/dev/null 2>&1 || true
+
+      - name: Create pull request
+        if: steps.versions.outputs.update == 'true' && steps.existing.outputs.skip == 'false'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/catboost-${{ steps.versions.outputs.latest }}
+          commit-message: "chore: update CatBoost to v${{ steps.versions.outputs.latest }}"
+          title: "chore: update CatBoost to v${{ steps.versions.outputs.latest }}"
+          body-path: ${{ runner.temp }}/pr-body.md
+          labels: dependencies, upstream-release
+          delete-branch: true
