@@ -5,7 +5,9 @@ name: CatBoost upstream release watcher
 # edits the crate; a dedicated action then opens ONE pull request. Nothing here can push
 # to the base branch or publish a release — the only remote write is the PR itself.
 #
-# Requires repo secret: ANTHROPIC_API_KEY
+# Auth: workload identity federation (no stored API key). Requires repo secrets:
+#   ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID, ANTHROPIC_SERVICE_ACCOUNT_ID
+#   (ANTHROPIC_WORKSPACE_ID only if the federation rule spans multiple workspaces)
 # Recommended: a branch-protection rule on the default branch requiring PRs.
 
 on:
@@ -14,6 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  id-token: write         # fetch the GitHub OIDC token for Anthropic WIF
   contents: write         # minimum GitHub allows for creating a PR branch
   pull-requests: write    # open/update the PR
 
@@ -91,7 +94,12 @@ jobs:
         if: steps.versions.outputs.update == 'true' && steps.existing.outputs.skip == 'false'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Workload identity federation — exchanges the GitHub OIDC token for a
+          # short-lived Anthropic credential. Do NOT also set anthropic_api_key.
+          anthropic_federation_rule_id: ${{ secrets.ANTHROPIC_FEDERATION_RULE_ID }}
+          anthropic_organization_id: ${{ secrets.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic_service_account_id: ${{ secrets.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          anthropic_workspace_id: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
           claude_args: |
             --allowedTools Bash,Edit,Write,Read,Glob,Grep
             --max-turns 40
